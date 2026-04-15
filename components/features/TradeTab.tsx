@@ -67,12 +67,14 @@ export function TradeTab() {
   }, [fromAmount, fromToken, toToken]);
 
   const handleFlip = () => {
-    const temp = fromToken;
-    setFromToken(toToken as typeof fromToken);
-    setToToken(temp);
-    setFromAmount(quote?.toAmount ?? "");
-    setQuote(null);
-  };
+  const temp = fromToken;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  setFromToken(toToken as any);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  setToToken(temp as any);
+  setFromAmount(quote?.toAmount ?? "");
+  setQuote(null);
+};
 
   const handleSwap = async () => {
     if (!quote || !address) return;
