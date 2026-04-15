@@ -20,8 +20,9 @@ const TOKEN_LIST = Object.values(TOKENS);
 
 export function TradeTab() {
   const { address, isConnected } = useWallet();
-  const [fromToken, setFromToken] = useState(TOKENS.ETH);
-  const [toToken, setToToken] = useState(TOKENS.STRK);
+  type TokenType = typeof TOKENS[keyof typeof TOKENS];
+const [fromToken, setFromToken] = useState<TokenType>(TOKENS.ETH);
+const [toToken, setToToken] = useState<TokenType>(TOKENS.STRK);
   const [fromAmount, setFromAmount] = useState("");
   const [slippage, setSlippage] = useState(0.5);
   const [showSettings, setShowSettings] = useState(false);
@@ -68,12 +69,11 @@ export function TradeTab() {
 
   const handleFlip = () => {
   const temp = fromToken;
-  setFromToken(toToken as unknown as typeof fromToken);
-  setToToken(temp as unknown as typeof toToken);
+  setFromToken(toToken);
+  setToToken(temp);
   setFromAmount(quote?.toAmount ?? "");
   setQuote(null);
 };
-
   const handleSwap = async () => {
     if (!quote || !address) return;
     setIsSwapping(true);
