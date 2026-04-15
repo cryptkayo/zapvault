@@ -52,7 +52,7 @@ export function useStaking(address: string | null, wallet: any | null) {
       try {
         // @ts-ignore
         const { mainnetValidators, fromAddress } = await import("starkzap");
-        const validatorList = Object.values(mainnetValidators);
+        const validatorList = Object.values(mainnetValidators).slice(0, 3);
 
         if (validatorList.length > 0) {
           const poolResults = await Promise.allSettled(
