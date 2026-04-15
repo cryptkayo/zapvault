@@ -8,7 +8,7 @@ interface WalletState {
   isConnected: boolean;
   isConnecting: boolean;
   network: "mainnet" | "sepolia";
-  wallet: any | null; // eslint-disable-line @typescript-eslint/no-explicit-any
+  wallet: any;
 }
 
 interface WalletContextType extends WalletState {
@@ -31,9 +31,9 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const connect = useCallback(async (walletType: "argent" | "braavos" | "cartridge") => {
     setState((s) => ({ ...s, isConnecting: true }));
     try {
-      const starknetArgent = (window as any).starknet_argentX; // eslint-disable-line @typescript-eslint/no-explicit-any
-      const starknetBraavos = (window as any).starknet_braavos; // eslint-disable-line @typescript-eslint/no-explicit-any
-      const starknetFallback = (window as any).starknet; // eslint-disable-line @typescript-eslint/no-explicit-any
+      const starknetArgent = (window as any).starknet_argentX;
+      const starknetBraavos = (window as any).starknet_braavos;
+      const starknetFallback = (window as any).starknet;
 
       const browserWallet =
         walletType === "argent"
@@ -52,21 +52,14 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       let sdkWallet = null;
       try {
         const signer = {
-          getPubKey: async () => {
-            return browserWallet.account?.signer?.getPubKey?.() ?? address;
-          },
-          signRaw: async (hash: string) => {
-            return (
-              (await browserWallet.account?.signer?.signRaw?.(hash)) ??
-              (await browserWallet.account?.signMessage?.(hash))
-            );
-          },
+          getPubKey: async () => browserWallet.account?.signer?.getPubKey?.() ?? address,
+          signRaw: async (hash: string) =>
+            (await browserWallet.account?.signer?.signRaw?.(hash)) ??
+            (await browserWallet.account?.signMessage?.(hash)),
         };
-
-        const connectParams = { account: { signer } };
-        sdkWallet = await (sdk as any).connectWallet(connectParams); // eslint-disable-line @typescript-eslint/no-explicit-any
+        sdkWallet = await (sdk as any).connectWallet({ account: { signer } });
       } catch (sdkErr) {
-        console.warn("SDK wallet connection failed, using browser wallet directly:", sdkErr);
+        console.warn("SDK wallet connection failed:", sdkErr);
         sdkWallet = browserWallet.account;
       }
 
@@ -77,7 +70,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         isConnecting: false,
         wallet: sdkWallet,
       }));
-    } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
+    } catch (err: any) {
       setState((s) => ({ ...s, isConnecting: false }));
       throw err;
     }
