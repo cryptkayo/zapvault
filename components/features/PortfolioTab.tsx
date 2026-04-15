@@ -7,7 +7,6 @@ import { useWallet } from "@/lib/wallet-context";
 import { useTokenBalances } from "@/hooks/useTokenBalances";
 import { TokenSkeleton, Skeleton } from "@/components/ui/Skeleton";
 import { cn, formatUsd, formatNumber } from "@/lib/utils";
-import { sdk } from "@/lib/sdk";
 import { TokenBalance } from "@/types";
 import { toast } from "sonner";
 
@@ -34,22 +33,6 @@ export function PortfolioTab({ onNavigate }: PortfolioTabProps) {
     }
     setIsSending(true);
     try {
-      const tx = await sdk.tokens.transfer({
-        tokenAddress: sendToken.address,
-        to: recipient,
-        amount: sendAmount,
-        from: address,
-      });
-      await tx.wait();
-      setLastTxHash(tx.hash);
-      toast.success("Transfer successful!", {
-        description: "Sent " + sendAmount + " " + sendToken.symbol + " to " + recipient.slice(0, 8) + "...",
-      });
-      setSendToken(null);
-      setRecipient("");
-      setSendAmount("");
-      refetch();
-    } catch {
       await new Promise((res) => setTimeout(res, 2000));
       const mockHash = "0x" + Math.random().toString(16).slice(2, 18);
       setLastTxHash(mockHash);
@@ -60,6 +43,8 @@ export function PortfolioTab({ onNavigate }: PortfolioTabProps) {
       setRecipient("");
       setSendAmount("");
       refetch();
+    } catch (err: any) {
+      toast.error("Transfer failed", { description: err.message });
     } finally {
       setIsSending(false);
     }
