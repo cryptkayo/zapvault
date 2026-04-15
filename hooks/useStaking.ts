@@ -82,7 +82,7 @@ export function useStaking(address: string | null, wallet: any | null) {
             .flatMap((r) => (r as PromiseFulfilledResult<any>).value);
 
           if (resolved.length > 0) {
-            fetchedPools = resolved;
+            fetchedPools = resolved.slice(0, 5);
           }
         }
       } catch (sdkErr) {
