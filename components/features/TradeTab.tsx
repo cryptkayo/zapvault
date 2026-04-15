@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { ArrowLeftRight, ChevronDown, Loader2, CheckCircle, Lock, ExternalLink, Settings, Info } from "lucide-react";
 import { useWallet } from "@/lib/wallet-context";
 import { TOKENS, NETWORKS } from "@/lib/sdk";
+import { useSwap } from "@/hooks/useSwap";
 import { cn, formatNumber } from "@/lib/utils";
 import { toast } from "sonner";
-import { SwapQuote } from "@/types";
 
 const TOKEN_LOGOS: Record<string, string> = {
   ETH: "https://assets.coingecko.com/coins/images/279/small/ethereum.png",
@@ -17,79 +17,45 @@ const TOKEN_LOGOS: Record<string, string> = {
 };
 
 const TOKEN_LIST = Object.values(TOKENS);
+type TokenType = typeof TOKENS[keyof typeof TOKENS];
 
 export function TradeTab() {
-  const { address, isConnected } = useWallet();
-  type TokenType = typeof TOKENS[keyof typeof TOKENS];
-const [fromToken, setFromToken] = useState<TokenType>(TOKENS.ETH);
-const [toToken, setToToken] = useState<TokenType>(TOKENS.STRK);
+  const { address, isConnected, wallet } = useWallet();
+  const { quote, isQuoting, isSwapping, lastTxHash, getQuote, executeSwap } = useSwap(address, wallet);
+
+  const [fromToken, setFromToken] = useState<TokenType>(TOKENS.ETH);
+  const [toToken, setToToken] = useState<TokenType>(TOKENS.STRK);
   const [fromAmount, setFromAmount] = useState("");
   const [slippage, setSlippage] = useState(0.5);
   const [showSettings, setShowSettings] = useState(false);
-  const [isQuoting, setIsQuoting] = useState(false);
-  const [isSwapping, setIsSwapping] = useState(false);
-  const [quote, setQuote] = useState<SwapQuote | null>(null);
-  const [lastTxHash, setLastTxHash] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!fromAmount || parseFloat(fromAmount) === 0) {
-      setQuote(null);
-      return;
+  const handleFromAmountChange = (value: string) => {
+    setFromAmount(value);
+    if (value && parseFloat(value) > 0) {
+      getQuote(fromToken.address, toToken.address, value);
     }
-    setIsQuoting(true);
-    const timeout = setTimeout(async () => {
-      try {
-        const mockRates: Record<string, Record<string, number>> = {
-          ETH: { STRK: 3500, USDC: 3200, USDT: 3200 },
-          STRK: { ETH: 0.000285, USDC: 0.92, USDT: 0.92 },
-          USDC: { ETH: 0.000312, STRK: 1.08, USDT: 1.0 },
-          USDT: { ETH: 0.000312, STRK: 1.08, USDC: 1.0 },
-        };
-        const rate = mockRates[fromToken.symbol]?.[toToken.symbol] ?? 1;
-        const toAmount = (parseFloat(fromAmount) * rate).toFixed(6);
-        const priceImpact = parseFloat(fromAmount) > 10 ? 0.12 : 0.04;
-        setQuote({
-          fromToken: fromToken.address,
-          toToken: toToken.address,
-          fromAmount,
-          toAmount,
-          priceImpact,
-          route: [fromToken.address, toToken.address],
-          estimatedGas: "0.0008",
-          expiresAt: Date.now() + 30_000,
-        });
-      } catch {
-        setQuote(null);
-      } finally {
-        setIsQuoting(false);
-      }
-    }, 600);
-    return () => clearTimeout(timeout);
-  }, [fromAmount, fromToken, toToken]);
+  };
 
   const handleFlip = () => {
-  const temp = fromToken;
-  setFromToken(toToken);
-  setToToken(temp);
-  setFromAmount(quote?.toAmount ?? "");
-  setQuote(null);
-};
+    const temp = fromToken;
+    setFromToken(toToken as TokenType);
+    setToToken(temp as TokenType);
+    setFromAmount(quote?.toAmount ?? "");
+    if (quote?.toAmount) {
+      getQuote(toToken.address, fromToken.address, quote.toAmount);
+    }
+  };
+
   const handleSwap = async () => {
     if (!quote || !address) return;
-    setIsSwapping(true);
     try {
-      await new Promise((res) => setTimeout(res, 2000));
-      const mockHash = "0x" + Math.random().toString(16).slice(2, 18);
-      setLastTxHash(mockHash);
+      const hash = await executeSwap(quote, slippage);
       setFromAmount("");
-      setQuote(null);
       toast.success("Swap successful!", {
-        description: "View on Voyager: " + NETWORKS.mainnet.explorer + "/tx/" + mockHash,
+        description: "View on Voyager: " + NETWORKS.mainnet.explorer + "/tx/" + hash,
       });
     } catch (err: any) {
       toast.error("Swap failed", { description: err.message });
-    } finally {
-      setIsSwapping(false);
     }
   };
 
@@ -156,7 +122,7 @@ const [toToken, setToToken] = useState<TokenType>(TOKENS.STRK);
               <input
                 type="number"
                 value={fromAmount}
-                onChange={(e) => setFromAmount(e.target.value)}
+                onChange={(e) => handleFromAmountChange(e.target.value)}
                 placeholder="0.00"
                 disabled={!isConnected}
                 className="flex-1 bg-transparent font-mono text-2xl text-zap-text placeholder-zap-muted focus:outline-none min-w-0 disabled:opacity-50"
@@ -164,7 +130,10 @@ const [toToken, setToToken] = useState<TokenType>(TOKENS.STRK);
               <TokenSelector
                 selected={fromToken}
                 options={TOKEN_LIST.filter((t) => t.symbol !== toToken.symbol)}
-                onSelect={(t) => { setFromToken(t); setQuote(null); }}
+                onSelect={(t) => {
+                  setFromToken(t as TokenType);
+                  if (fromAmount) getQuote(t.address, toToken.address, fromAmount);
+                }}
               />
             </div>
           </div>
@@ -206,7 +175,10 @@ const [toToken, setToToken] = useState<TokenType>(TOKENS.STRK);
               <TokenSelector
                 selected={toToken}
                 options={TOKEN_LIST.filter((t) => t.symbol !== fromToken.symbol)}
-                onSelect={(t) => { setToToken(t); setQuote(null); }}
+                onSelect={(t) => {
+                  setToToken(t as TokenType);
+                  if (fromAmount) getQuote(fromToken.address, t.address, fromAmount);
+                }}
               />
             </div>
           </div>

@@ -10,8 +10,8 @@ import { cn, formatNumber } from "@/lib/utils";
 import { toast } from "sonner";
 
 export function EarnTab() {
-  const { address, isConnected } = useWallet();
-  const { pools, myPositions, isLoading, isTxPending, stake, claimRewards, unstake } = useStaking(address);
+  const { address, isConnected, wallet } = useWallet();
+const { pools, myPositions, isLoading, isTxPending, stake, claimRewards, unstake } = useStaking(address, wallet);
   const [selectedPool, setSelectedPool] = useState<string | null>(null);
   const [stakeAmount, setStakeAmount] = useState("");
   const [unstakeAmount, setUnstakeAmount] = useState("");

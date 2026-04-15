@@ -1,9 +1,8 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { sdk } from "@/lib/sdk";
-import { SwapQuote } from "@/types";
 import { TOKENS } from "@/lib/sdk";
+import { SwapQuote } from "@/types";
 
 const MOCK_RATES: Record<string, Record<string, number>> = {
   ETH: { STRK: 3500, USDC: 3200, USDT: 3200 },
@@ -17,7 +16,7 @@ function getSymbolFromAddress(address: string): string {
   return token?.symbol ?? "ETH";
 }
 
-export function useSwap(address: string | null) {
+export function useSwap(address: string | null, wallet: any | null) {
   const [quote, setQuote] = useState<SwapQuote | null>(null);
   const [isQuoting, setIsQuoting] = useState(false);
   const [isSwapping, setIsSwapping] = useState(false);
@@ -32,23 +31,41 @@ export function useSwap(address: string | null) {
     setIsQuoting(true);
     setError(null);
     try {
-      // @ts-ignore
-      const q = await sdk.swap.getQuote({
-        fromTokenAddress: fromToken,
-        toTokenAddress: toToken,
-        amount,
-      });
-      setQuote({
-        fromToken,
-        toToken,
-        fromAmount: amount,
-        toAmount: q.toAmount ?? q.outputAmount,
-        priceImpact: parseFloat(q.priceImpact ?? "0"),
-        route: q.route ?? [fromToken, toToken],
-        estimatedGas: q.estimatedGas ?? "0.0008",
-        expiresAt: Date.now() + 30_000,
-      });
+      // Try real SDK quote via wallet.getQuote()
+      if (wallet && wallet.getQuote) {
+        // @ts-ignore
+        const { mainnetTokens, Amount, fromAddress } = await import("starkzap");
+        const fromSymbol = getSymbolFromAddress(fromToken);
+        const toSymbol = getSymbolFromAddress(toToken);
+        // @ts-ignore
+        const fromSdkToken = Object.values(mainnetTokens).find((t: any) => t.symbol === fromSymbol);
+        // @ts-ignore
+        const toSdkToken = Object.values(mainnetTokens).find((t: any) => t.symbol === toSymbol);
+
+        if (fromSdkToken && toSdkToken) {
+          // @ts-ignore
+          const fromAmount = Amount.parse(amount, fromSdkToken);
+          const q = await wallet.getQuote({
+            sell: { token: fromSdkToken, amount: fromAmount },
+            buy: { token: toSdkToken },
+          });
+          const toAmount = q.buy?.amount?.toUnit?.() ?? "0";
+          setQuote({
+            fromToken,
+            toToken,
+            fromAmount: amount,
+            toAmount,
+            priceImpact: 0.04,
+            route: [fromToken, toToken],
+            estimatedGas: "0.0008",
+            expiresAt: Date.now() + 30_000,
+          });
+          return;
+        }
+      }
+      throw new Error("SDK quote unavailable");
     } catch {
+      // Fallback to mock rates
       const fromSymbol = getSymbolFromAddress(fromToken);
       const toSymbol = getSymbolFromAddress(toToken);
       const rate = MOCK_RATES[fromSymbol]?.[toSymbol] ?? 1;
@@ -66,26 +83,38 @@ export function useSwap(address: string | null) {
     } finally {
       setIsQuoting(false);
     }
-  }, []);
+  }, [wallet]);
 
   const executeSwap = useCallback(async (q: SwapQuote, slippage: number = 0.5) => {
-    if (!address) throw new Error("Wallet not connected");
+    if (!address || !wallet) throw new Error("Wallet not connected");
     setIsSwapping(true);
     setError(null);
     try {
       // @ts-ignore
-      const tx = await sdk.swap.execute({
-        fromTokenAddress: q.fromToken,
-        toTokenAddress: q.toToken,
-        amount: q.fromAmount,
-        slippage,
-        address,
-      });
-      await tx.wait();
-      setLastTxHash(tx.hash);
-      setQuote(null);
-      return tx.hash;
+      const { mainnetTokens, Amount } = await import("starkzap");
+      const fromSymbol = getSymbolFromAddress(q.fromToken);
+      const toSymbol = getSymbolFromAddress(q.toToken);
+      // @ts-ignore
+      const fromSdkToken = Object.values(mainnetTokens).find((t: any) => t.symbol === fromSymbol);
+      // @ts-ignore
+      const toSdkToken = Object.values(mainnetTokens).find((t: any) => t.symbol === toSymbol);
+
+      if (fromSdkToken && toSdkToken && wallet.swap) {
+        // @ts-ignore
+        const fromAmount = Amount.parse(q.fromAmount, fromSdkToken);
+        const tx = await wallet.swap({
+          sell: { token: fromSdkToken, amount: fromAmount },
+          buy: { token: toSdkToken },
+          slippage,
+        });
+        await tx.wait();
+        setLastTxHash(tx.hash);
+        setQuote(null);
+        return tx.hash;
+      }
+      throw new Error("SDK swap unavailable");
     } catch {
+      // Fallback simulation
       await new Promise((res) => setTimeout(res, 2000));
       const mockHash = "0x" + Math.random().toString(16).slice(2, 18);
       setLastTxHash(mockHash);
@@ -94,7 +123,7 @@ export function useSwap(address: string | null) {
     } finally {
       setIsSwapping(false);
     }
-  }, [address]);
+  }, [address, wallet]);
 
   return { quote, isQuoting, isSwapping, error, lastTxHash, getQuote, executeSwap };
 }

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { TokenBalance } from "@/types";
-import { sdk, TOKENS } from "@/lib/sdk";
+import { TOKENS } from "@/lib/sdk";
 
 async function fetchPrices(): Promise<Record<string, any>> {
   try {
@@ -21,14 +21,14 @@ async function fetchPrices(): Promise<Record<string, any>> {
   }
 }
 
-export function useTokenBalances(address: string | null) {
+export function useTokenBalances(address: string | null, wallet: any | null) {
   const [balances, setBalances] = useState<TokenBalance[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [totalUsd, setTotalUsd] = useState(0);
 
   const fetchBalances = useCallback(async () => {
-    if (!address) {
+    if (!address || !wallet) {
       setBalances([]);
       setTotalUsd(0);
       return;
@@ -41,13 +41,43 @@ export function useTokenBalances(address: string | null) {
       const balanceResults = await Promise.allSettled(
         Object.values(TOKENS).map(async (token) => {
           try {
-            // @ts-ignore
-            const balance = await sdk.tokens.getBalance({
-              tokenAddress: token.address,
-              ownerAddress: address,
-            });
+            let raw = BigInt(0);
 
-            const raw = BigInt(balance.raw ?? "0");
+            // Try SDK wallet.balanceOf() first
+            try {
+              // @ts-ignore
+              const { mainnetTokens } = await import("starkzap");
+              const sdkToken = Object.values(mainnetTokens).find(
+                // @ts-ignore
+                (t: any) => t.symbol === token.symbol
+              );
+              if (sdkToken && wallet.balanceOf) {
+                // @ts-ignore
+                const amount = await wallet.balanceOf(sdkToken);
+                raw = amount.toBase ? amount.toBase() : BigInt(amount.toString());
+              }
+            } catch {
+              // Fallback to direct RPC call
+              try {
+                const { RpcProvider, Contract } = await import("starknet");
+                const provider = new RpcProvider({ nodeUrl: "https://api.cartridge.gg/x/starknet/mainnet" });
+                const erc20Abi = [
+                  {
+                    name: "balanceOf",
+                    type: "function",
+                    inputs: [{ name: "account", type: "felt" }],
+                    outputs: [{ name: "balance", type: "Uint256" }],
+                    stateMutability: "view",
+                  },
+                ];
+                const contract = new Contract(erc20Abi, token.address, provider);
+                const result = await contract.balanceOf(address);
+                raw = BigInt(result.balance?.low ?? result.balance ?? "0");
+              } catch {
+                raw = BigInt(0);
+              }
+            }
+
             const divisor = BigInt(10 ** token.decimals);
             const whole = raw / divisor;
             const fraction = raw % divisor;
@@ -101,7 +131,7 @@ export function useTokenBalances(address: string | null) {
     } finally {
       setIsLoading(false);
     }
-  }, [address]);
+  }, [address, wallet]);
 
   useEffect(() => {
     fetchBalances();
