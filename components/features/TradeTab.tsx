@@ -67,8 +67,9 @@ export function TradeTab() {
   }, [fromAmount, fromToken, toToken]);
 
   const handleFlip = () => {
-    setFromToken(toToken);
-    setToToken(fromToken);
+    const temp = fromToken;
+    setFromToken(toToken as typeof fromToken);
+    setToToken(temp);
     setFromAmount(quote?.toAmount ?? "");
     setQuote(null);
   };
