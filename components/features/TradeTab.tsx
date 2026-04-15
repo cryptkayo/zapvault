@@ -68,10 +68,8 @@ export function TradeTab() {
 
   const handleFlip = () => {
   const temp = fromToken;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  setFromToken(toToken as any);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  setToToken(temp as any);
+  setFromToken(toToken as unknown as typeof fromToken);
+  setToToken(temp as unknown as typeof toToken);
   setFromAmount(quote?.toAmount ?? "");
   setQuote(null);
 };
