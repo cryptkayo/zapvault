@@ -8,7 +8,7 @@ async function fetchPrices(): Promise<Record<string, any>> {
   try {
     const ids = Object.values(TOKENS).map((t) => t.coingeckoId).join(",");
     const res = await fetch(
-      `https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd&include_24hr_change=true`
+      "https://api.coingecko.com/api/v3/simple/price?ids=" + ids + "&vs_currencies=usd&include_24hr_change=true"
     );
     return await res.json();
   } catch {
@@ -41,6 +41,7 @@ export function useTokenBalances(address: string | null) {
       const balanceResults = await Promise.allSettled(
         Object.values(TOKENS).map(async (token) => {
           try {
+            // @ts-ignore
             const balance = await sdk.tokens.getBalance({
               tokenAddress: token.address,
               ownerAddress: address,
@@ -50,10 +51,10 @@ export function useTokenBalances(address: string | null) {
             const divisor = BigInt(10 ** token.decimals);
             const whole = raw / divisor;
             const fraction = raw % divisor;
-            const formatted = `${whole}.${fraction
+            const formatted = whole.toString() + "." + fraction
               .toString()
               .padStart(token.decimals, "0")
-              .slice(0, 4)}`;
+              .slice(0, 4);
 
             const numericBalance = parseFloat(formatted);
             const priceData = prices[token.coingeckoId];

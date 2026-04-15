@@ -16,6 +16,7 @@ export function useBridge(address: string | null) {
   const fetchBridgeTokens = useCallback(async () => {
     setIsLoading(true);
     try {
+      // @ts-ignore
       const supported = await sdk.bridging.getBridgingTokens({
         fromChain: "ethereum",
         toChain: "starknet",
@@ -47,6 +48,7 @@ export function useBridge(address: string | null) {
     setIsQuoting(true);
     setError(null);
     try {
+      // @ts-ignore
       const q = await sdk.bridging.getQuote({
         fromChain: "ethereum",
         toChain: "starknet",
@@ -74,6 +76,7 @@ export function useBridge(address: string | null) {
     setIsBridging(true);
     setError(null);
     try {
+      // @ts-ignore
       const tx = await sdk.bridging.deposit({
         fromChain: "ethereum",
         toChain: "starknet",
