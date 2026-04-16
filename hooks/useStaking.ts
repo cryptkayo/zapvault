@@ -91,12 +91,10 @@ export function useStaking(address: string | null, wallet: any | null) {
     if (!address || Object.keys(stakingInstances).length === 0) return;
 
     const positions: StakingPool[] = [];
-    // isMember requires a wallet-like object with address
-    const walletLike = { address };
 
     for (const [poolAddress, stakingInstance] of Object.entries(stakingInstances)) {
       try {
-        const position = await stakingInstance.getPosition(walletLike);
+        const position = await stakingInstance.getPosition(address as any);
         if (position && !position.staked.isZero()) {
           const pool = pools.find((p) => p.id === poolAddress);
           positions.push({
@@ -132,9 +130,7 @@ export function useStaking(address: string | null, wallet: any | null) {
         const strkToken = (stakingInstance as any).token;
         const amountParsed = Amount.parse(amount, strkToken);
 
-        // isMember needs { address } shape
-        const walletLike = { address };
-        const isMember = await stakingInstance.isMember(walletLike);
+        const isMember = await stakingInstance.isMember(address as any);
 
         // populateEnter / populateAdd return the correct Call[] for account.execute
         const calls = isMember
