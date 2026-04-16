@@ -38,101 +38,90 @@ const FALLBACK_POOLS: StakingPool[] = [
 ];
 
 export function useStaking(address: string | null, wallet: any | null) {
-  const [pools, setPools] = useState<StakingPool[]>([]);
+  const [pools, setPools] = useState<StakingPool[]>(FALLBACK_POOLS);
   const [myPositions, setMyPositions] = useState<StakingPool[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isTxPending, setIsTxPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fetchPools = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      // Use sdk.getStakerPools() with real mainnet validators
-      let fetchedPools: StakingPool[] = [];
-      try {
-        // @ts-ignore
-        const { mainnetValidators, fromAddress } = await import("starkzap");
-        const validatorList = Object.values(mainnetValidators).slice(0, 3);
+    // Show fallback immediately — no loading state
+    setPools(FALLBACK_POOLS);
 
-        if (validatorList.length > 0) {
-          const poolResults = await Promise.allSettled(
-            // @ts-ignore
-            validatorList.map(async (validator: any) => {
-              try {
-                // @ts-ignore
-                const pools = await sdk.getStakerPools(fromAddress(validator.stakerAddress));
-                return pools.map((pool: any) => ({
-                  id: pool.poolContract ?? validator.stakerAddress,
-                  name: validator.name ?? "Starknet Validator",
+    // Try to fetch live data in background with a timeout
+    try {
+      const timeoutPromise = new Promise<null>((_, reject) =>
+        setTimeout(() => reject(new Error("timeout")), 5000)
+      );
+
+      const fetchPromise = (async () => {
+        const { mainnetValidators, fromAddress } = await import("starkzap") as any;
+        const validatorList = Object.values(mainnetValidators).slice(0, 3);
+        const results: StakingPool[] = [];
+
+        for (const validator of validatorList as any[]) {
+          try {
+            const pools = await sdk.getStakerPools(fromAddress(validator.stakerAddress)) as any;
+            if (pools && pools.length > 0) {
+              results.push({
+                id: pools[0].poolContract ?? validator.stakerAddress,
+                name: validator.name ?? "Starknet Validator",
+                validator: validator.stakerAddress,
+                apy: 7.0,
+                totalStaked: pools[0].amount?.toBase?.()?.toString() ?? "0",
+                myStaked: "0",
+                myRewards: "0",
+                status: "active" as const,
+              });
+            }
+          } catch {
+            // skip this validator
+          }
+        }
+        return results;
+      })();
+
+      const livePools = await Promise.race([fetchPromise, timeoutPromise]);
+      if (livePools && livePools.length > 0) {
+        setPools(livePools.slice(0, 5));
+      }
+    } catch {
+      // Keep fallback pools — already set
+    }
+
+    // Fetch user positions if wallet connected
+    if (wallet && address) {
+      try {
+        const { mainnetValidators, fromAddress } = await import("starkzap") as any;
+        const validatorList = Object.values(mainnetValidators).slice(0, 3);
+        const positions: StakingPool[] = [];
+
+        for (const validator of validatorList as any[]) {
+          try {
+            const pools = await sdk.getStakerPools(fromAddress(validator.stakerAddress)) as any;
+            for (const pool of pools) {
+              const position = await wallet.getPoolPosition?.(pool.poolContract);
+              if (position && !position.staked?.isZero?.()) {
+                positions.push({
+                  id: pool.poolContract,
+                  name: validator.name,
                   validator: validator.stakerAddress,
                   apy: 7.0,
-                  totalStaked: pool.amount?.toBase?.()?.toString() ?? "0",
-                  myStaked: "0",
-                  myRewards: "0",
-                  status: "active" as const,
-                }));
-              } catch {
-                return null;
+                  totalStaked: "0",
+                  myStaked: position.staked?.toUnit?.() ?? "0",
+                  myRewards: position.rewards?.toUnit?.() ?? "0",
+                  status: "active",
+                });
               }
-            })
-          );
-
-          const resolved = poolResults
-            .filter((r) => r.status === "fulfilled" && r.value !== null)
-            .flatMap((r) => (r as PromiseFulfilledResult<any>).value);
-
-          if (resolved.length > 0) {
-            fetchedPools = resolved.slice(0, 5);
-          }
-        }
-      } catch (sdkErr) {
-        console.warn("SDK pool fetch failed:", sdkErr);
-      }
-
-      setPools(fetchedPools.length > 0 ? fetchedPools : FALLBACK_POOLS);
-
-      // Fetch user positions if wallet connected
-      if (wallet && address) {
-        try {
-          // @ts-ignore
-          const { mainnetValidators, fromAddress } = await import("starkzap");
-          const validatorList = Object.values(mainnetValidators);
-          const positions: StakingPool[] = [];
-
-          for (const validator of validatorList as any[]) {
-            try {
-              // @ts-ignore
-              const pools = await sdk.getStakerPools(fromAddress(validator.stakerAddress));
-              for (const pool of pools) {
-                const position = await wallet.getPoolPosition?.(pool.poolContract);
-                if (position && !position.staked?.isZero?.()) {
-                  positions.push({
-                    id: pool.poolContract,
-                    name: validator.name,
-                    validator: validator.stakerAddress,
-                    apy: 7.0,
-                    totalStaked: "0",
-                    myStaked: position.staked?.toUnit?.() ?? "0",
-                    myRewards: position.rewards?.toUnit?.() ?? "0",
-                    status: "active",
-                  });
-                }
-              }
-            } catch {
-              // skip this validator
             }
+          } catch {
+            // skip
           }
-
-          setMyPositions(positions);
-        } catch {
-          // no positions found
         }
+        setMyPositions(positions);
+      } catch {
+        // no positions
       }
-    } catch (err: any) {
-      setError(err.message);
-      setPools(FALLBACK_POOLS);
-    } finally {
-      setIsLoading(false);
     }
   }, [address, wallet]);
 
@@ -140,8 +129,7 @@ export function useStaking(address: string | null, wallet: any | null) {
     if (!address || !wallet) throw new Error("Wallet not connected");
     setIsTxPending(true);
     try {
-      // @ts-ignore
-      const { fromAddress, mainnetTokens, Amount } = await import("starkzap");
+      const { fromAddress, mainnetTokens, Amount } = await import("starkzap") as any;
       const pool = fromAddress(poolId);
       const strk = mainnetTokens.STRK;
       const stakeAmount = Amount.parse(amount, strk);
@@ -158,8 +146,7 @@ export function useStaking(address: string | null, wallet: any | null) {
     if (!address || !wallet) throw new Error("Wallet not connected");
     setIsTxPending(true);
     try {
-      // @ts-ignore
-      const { fromAddress } = await import("starkzap");
+      const { fromAddress } = await import("starkzap") as any;
       const pool = fromAddress(poolId);
       const tx = await wallet.claimPoolRewards(pool);
       await tx.wait();
@@ -174,8 +161,7 @@ export function useStaking(address: string | null, wallet: any | null) {
     if (!address || !wallet) throw new Error("Wallet not connected");
     setIsTxPending(true);
     try {
-      // @ts-ignore
-      const { fromAddress, mainnetTokens, Amount } = await import("starkzap");
+      const { fromAddress, mainnetTokens, Amount } = await import("starkzap") as any;
       const pool = fromAddress(poolId);
       const strk = mainnetTokens.STRK;
       const unstakeAmount = Amount.parse(amount, strk);
