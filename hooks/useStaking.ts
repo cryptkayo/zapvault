@@ -71,7 +71,7 @@ export function useStaking(address: string | null, wallet: any | null) {
         {
   contractAddress: poolId,
   entrypoint: "enter_delegation_pool",
-  calldata: [amountLow, amountHigh],
+  calldata: [address, amountLow, amountHigh],
 },
       ]);
 
