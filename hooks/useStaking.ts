@@ -35,7 +35,6 @@ export function useStaking(address: string | null, wallet: any | null) {
     const resolvedPools: StakingPool[] = [];
     const instances: Record<string, Staking> = {};
 
-    // Get STRK token from SDK
     const tokens = await sdk.stakingTokens();
     const strkToken = tokens.find((t: any) => t.symbol === "STRK");
 
@@ -45,11 +44,10 @@ export function useStaking(address: string | null, wallet: any | null) {
       return;
     }
 
-    const provider = sdk.getProvider(); // public API
+    const provider = sdk.getProvider();
 
     for (const config of POOLS_CONFIG) {
       try {
-        // SDK resolves the live pool contract and validates staker is active
         const stakingInstance = await Staking.fromStaker(
           config.stakerAddress,
           strkToken,
@@ -60,7 +58,6 @@ export function useStaking(address: string | null, wallet: any | null) {
         const poolAddress = stakingInstance.poolAddress;
         instances[poolAddress] = stakingInstance;
 
-        // Real on-chain commission → accurate APY
         const commission = await stakingInstance.getCommission();
         const apy = Math.round(7.5 * (1 - commission / 100) * 10) / 10;
 
@@ -75,10 +72,9 @@ export function useStaking(address: string | null, wallet: any | null) {
           status: "active",
         });
 
-        console.log(`✅ ${config.name}: pool=${poolAddress}, commission=${commission}%`);
+        console.log("Loaded pool:", config.name, poolAddress);
       } catch (e: any) {
-        // Validator inactive or migrated — skip cleanly
-        console.warn(`⚠️ Skipping ${config.name}: ${e.message}`);
+        console.warn("Skipping pool", config.name, e.message);
       }
     }
 
@@ -109,7 +105,7 @@ export function useStaking(address: string | null, wallet: any | null) {
           });
         }
       } catch {
-        // Not a member of this pool — expected
+        // Not a member of this pool
       }
     }
 
@@ -118,27 +114,35 @@ export function useStaking(address: string | null, wallet: any | null) {
 
   const stake = useCallback(
     async (poolId: string, amount: string) => {
-      if (!address || !wallet) throw new Error("Wallet not connected");
+      if (!wallet) throw new Error("Wallet not connected");
       const account = wallet.browserAccount || wallet.getAccount?.();
       if (!account) throw new Error("No account available");
+
+      // Resolve address from all available sources
+      const walletAddress = address || account.address || wallet.address;
+      if (!walletAddress) throw new Error("Could not resolve wallet address");
 
       const stakingInstance = stakingInstances[poolId];
       if (!stakingInstance) throw new Error("Pool not found");
 
       setIsTxPending(true);
       try {
+        console.log("Staking from:", walletAddress, "pool:", poolId, "amount:", amount);
+
         const strkToken = (stakingInstance as any).token;
         const amountParsed = Amount.parse(amount, strkToken);
 
-        const isMember = await stakingInstance.isMember(address as any);
+        const isMember = await stakingInstance.isMember(walletAddress as any);
+        console.log("Is member:", isMember);
 
-        // populateEnter / populateAdd return the correct Call[] for account.execute
         const calls = isMember
-          ? (stakingInstance as any).populateAdd(address, amountParsed)
-          : (stakingInstance as any).populateEnter(address, amountParsed);
+          ? (stakingInstance as any).populateAdd(walletAddress, amountParsed)
+          : (stakingInstance as any).populateEnter(walletAddress, amountParsed);
+
+        console.log("Calls:", JSON.stringify(calls));
 
         const tx = await account.execute(calls);
-        console.log("✅ Stake tx:", tx.transaction_hash);
+        console.log("Stake tx:", tx.transaction_hash);
 
         await new Promise((res) => setTimeout(res, 3000));
         await fetchPositions();
@@ -152,16 +156,19 @@ export function useStaking(address: string | null, wallet: any | null) {
 
   const claimRewards = useCallback(
     async (poolId: string) => {
-      if (!address || !wallet) throw new Error("Wallet not connected");
+      if (!wallet) throw new Error("Wallet not connected");
       const account = wallet.browserAccount || wallet.getAccount?.();
       if (!account) throw new Error("No account available");
+
+      const walletAddress = address || account.address || wallet.address;
+      if (!walletAddress) throw new Error("Could not resolve wallet address");
 
       const stakingInstance = stakingInstances[poolId];
       if (!stakingInstance) throw new Error("Pool not found");
 
       setIsTxPending(true);
       try {
-        const call = (stakingInstance as any).populateClaimRewards(address);
+        const call = (stakingInstance as any).populateClaimRewards(walletAddress);
         const tx = await account.execute([call]);
         await new Promise((res) => setTimeout(res, 3000));
         await fetchPositions();
@@ -175,9 +182,12 @@ export function useStaking(address: string | null, wallet: any | null) {
 
   const unstake = useCallback(
     async (poolId: string, amount: string) => {
-      if (!address || !wallet) throw new Error("Wallet not connected");
+      if (!wallet) throw new Error("Wallet not connected");
       const account = wallet.browserAccount || wallet.getAccount?.();
       if (!account) throw new Error("No account available");
+
+      const walletAddress = address || account.address || wallet.address;
+      if (!walletAddress) throw new Error("Could not resolve wallet address");
 
       const stakingInstance = stakingInstances[poolId];
       if (!stakingInstance) throw new Error("Pool not found");
