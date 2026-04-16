@@ -10,14 +10,16 @@ async function fetchPrices(): Promise<Record<string, any>> {
   try {
     const ids = Object.values(TOKENS).map((t) => t.coingeckoId).join(",");
     const res = await fetch(
-      "https://api.coingecko.com/api/v3/simple/price?ids=" + ids + "&vs_currencies=usd&include_24hr_change=true"
+      "https://api.coingecko.com/api/v3/simple/price?ids=" + ids + "&vs_currencies=usd&include_24hr_change=true",
+      { cache: "no-store" }
     );
+    if (!res.ok) throw new Error("CoinGecko failed");
     return await res.json();
   } catch {
     return {
-      ethereum: { usd: 3200, usd_24h_change: 1.2 },
-      starknet: { usd: 0.85, usd_24h_change: -0.5 },
-      "usd-coin": { usd: 1.0, usd_24h_change: 0.01 },
+      ethereum: { usd: 1600, usd_24h_change: 0 },
+      starknet: { usd: 0.034, usd_24h_change: 0 },
+      "usd-coin": { usd: 1.0, usd_24h_change: 0.0 },
       tether: { usd: 1.0, usd_24h_change: 0.0 },
     };
   }
@@ -25,7 +27,6 @@ async function fetchPrices(): Promise<Record<string, any>> {
 
 async function getTokenBalance(tokenAddress: string, ownerAddress: string): Promise<bigint> {
   try {
-    // Direct JSON-RPC call to Starknet
     const response = await fetch(RPC_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -35,7 +36,7 @@ async function getTokenBalance(tokenAddress: string, ownerAddress: string): Prom
         params: [
           {
             contract_address: tokenAddress,
-            entry_point_selector: "0x2e4263afad30923c891518314c3c95dbe830a16874e8abc5777a9a20b54c76e", // balanceOf selector
+            entry_point_selector: "0x2e4263afad30923c891518314c3c95dbe830a16874e8abc5777a9a20b54c76e",
             calldata: [ownerAddress],
           },
           "latest",
@@ -45,7 +46,6 @@ async function getTokenBalance(tokenAddress: string, ownerAddress: string): Prom
     });
     const data = await response.json();
     if (data.result && data.result.length > 0) {
-      // Result is [low, high] for Uint256
       const low = BigInt(data.result[0] ?? "0");
       const high = BigInt(data.result[1] ?? "0");
       return low + high * BigInt(2 ** 128);
