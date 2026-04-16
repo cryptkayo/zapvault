@@ -89,10 +89,10 @@ export function useStaking(address: string | null, wallet: any | null) {
           calldata: [poolId, amountLow, amountHigh],
         },
         {
-          contractAddress: poolId,
-          entrypoint: "enter_delegation_pool",
-          calldata: [address, amountLow, amountHigh],
-        },
+  contractAddress: poolId,
+  entrypoint: "enter_delegation_pool",
+  calldata: [amountLow, amountHigh],
+},
       ]);
 
       await new Promise((res) => setTimeout(res, 3000));
