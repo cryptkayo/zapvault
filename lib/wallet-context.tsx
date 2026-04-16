@@ -59,7 +59,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         };
         sdkWallet = await (sdk as any).connectWallet({ account: { signer } });
       } catch (sdkErr) {
-        console.warn("SDK wallet connection failed:", sdkErr);
+        console.error("SDK wallet connection failed:", sdkErr);
         sdkWallet = browserWallet.account;
       }
 
