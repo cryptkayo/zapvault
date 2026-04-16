@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback } from "react";
 import { TokenBalance } from "@/types";
 import { TOKENS } from "@/lib/sdk";
 
+const RPC_URL = "https://api.cartridge.gg/x/starknet/mainnet";
+
 async function fetchPrices(): Promise<Record<string, any>> {
   try {
     const ids = Object.values(TOKENS).map((t) => t.coingeckoId).join(",");
@@ -21,6 +23,39 @@ async function fetchPrices(): Promise<Record<string, any>> {
   }
 }
 
+async function getTokenBalance(tokenAddress: string, ownerAddress: string): Promise<bigint> {
+  try {
+    // Direct JSON-RPC call to Starknet
+    const response = await fetch(RPC_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        method: "starknet_call",
+        params: [
+          {
+            contract_address: tokenAddress,
+            entry_point_selector: "0x2e4263afad30923c891518314c3c95dbe830a16874e8abc5777a9a20b54c76e", // balanceOf selector
+            calldata: [ownerAddress],
+          },
+          "latest",
+        ],
+        id: 1,
+      }),
+    });
+    const data = await response.json();
+    if (data.result && data.result.length > 0) {
+      // Result is [low, high] for Uint256
+      const low = BigInt(data.result[0] ?? "0");
+      const high = BigInt(data.result[1] ?? "0");
+      return low + high * BigInt(2 ** 128);
+    }
+    return BigInt(0);
+  } catch {
+    return BigInt(0);
+  }
+}
+
 export function useTokenBalances(address: string | null, wallet: any | null) {
   const [balances, setBalances] = useState<TokenBalance[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -28,7 +63,7 @@ export function useTokenBalances(address: string | null, wallet: any | null) {
   const [totalUsd, setTotalUsd] = useState(0);
 
   const fetchBalances = useCallback(async () => {
-    if (!address || !wallet) {
+    if (!address) {
       setBalances([]);
       setTotalUsd(0);
       return;
@@ -40,82 +75,33 @@ export function useTokenBalances(address: string | null, wallet: any | null) {
 
       const balanceResults = await Promise.allSettled(
         Object.values(TOKENS).map(async (token) => {
-          try {
-            let raw = BigInt(0);
+          const raw = await getTokenBalance(token.address, address);
 
-            // Try SDK wallet.balanceOf() first
-            try {
-              // @ts-ignore
-              const { mainnetTokens } = await import("starkzap");
-              const sdkToken = Object.values(mainnetTokens).find(
-                // @ts-ignore
-                (t: any) => t.symbol === token.symbol
-              );
-              if (sdkToken && wallet.balanceOf) {
-                // @ts-ignore
-                const amount = await wallet.balanceOf(sdkToken);
-                raw = amount.toBase ? amount.toBase() : BigInt(amount.toString());
-              }
-            } catch {
-              // Fallback to direct RPC call
-              try {
-                const { RpcProvider, Contract } = await import("starknet");
-                const provider = new RpcProvider({ nodeUrl: "https://api.cartridge.gg/x/starknet/mainnet" });
-                const erc20Abi = [
-                  {
-                    name: "balanceOf",
-                    type: "function",
-                    inputs: [{ name: "account", type: "felt" }],
-                    outputs: [{ name: "balance", type: "Uint256" }],
-                    stateMutability: "view",
-                  },
-                ];
-                const contract = new Contract(erc20Abi, token.address, provider);
-                const result = await contract.balanceOf(address);
-                raw = BigInt(result.balance?.low ?? result.balance ?? "0");
-              } catch {
-                raw = BigInt(0);
-              }
-            }
+          const divisor = BigInt(10 ** token.decimals);
+          const whole = raw / divisor;
+          const fraction = raw % divisor;
+          const formatted = whole.toString() + "." + fraction
+            .toString()
+            .padStart(token.decimals, "0")
+            .slice(0, 4);
 
-            const divisor = BigInt(10 ** token.decimals);
-            const whole = raw / divisor;
-            const fraction = raw % divisor;
-            const formatted = whole.toString() + "." + fraction
-              .toString()
-              .padStart(token.decimals, "0")
-              .slice(0, 4);
+          const numericBalance = parseFloat(formatted);
+          const priceData = prices[token.coingeckoId];
+          const usdPrice = priceData?.usd ?? 0;
+          const change24h = priceData?.usd_24h_change ?? 0;
+          const usdValue = numericBalance * usdPrice;
 
-            const numericBalance = parseFloat(formatted);
-            const priceData = prices[token.coingeckoId];
-            const usdPrice = priceData?.usd ?? 0;
-            const change24h = priceData?.usd_24h_change ?? 0;
-            const usdValue = numericBalance * usdPrice;
-
-            return {
-              symbol: token.symbol,
-              name: token.name,
-              address: token.address,
-              decimals: token.decimals,
-              raw,
-              formatted,
-              usdValue,
-              color: token.color,
-              change24h,
-            } as TokenBalance;
-          } catch {
-            return {
-              symbol: token.symbol,
-              name: token.name,
-              address: token.address,
-              decimals: token.decimals,
-              raw: BigInt(0),
-              formatted: "0.0000",
-              usdValue: 0,
-              color: token.color,
-              change24h: 0,
-            } as TokenBalance;
-          }
+          return {
+            symbol: token.symbol,
+            name: token.name,
+            address: token.address,
+            decimals: token.decimals,
+            raw,
+            formatted,
+            usdValue,
+            color: token.color,
+            change24h,
+          } as TokenBalance;
         })
       );
 
@@ -131,7 +117,7 @@ export function useTokenBalances(address: string | null, wallet: any | null) {
     } finally {
       setIsLoading(false);
     }
-  }, [address, wallet]);
+  }, [address]);
 
   useEffect(() => {
     fetchBalances();
