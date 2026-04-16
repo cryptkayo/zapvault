@@ -1,7 +1,12 @@
-import { StarkZap } from "starkzap";
+import { StarkZap, fromAddress } from "starkzap";
 
 export const sdk = new StarkZap({
   network: "mainnet",
+  staking: {
+    contract: fromAddress(
+      "0x00ca1702e64c81d9a07b86bd2c540188d92a2c73cf5cc0e508d949015e7e84a7"
+    ),
+  },
   paymaster: {
     default: true,
   },
@@ -70,4 +75,3 @@ export const TOKENS = {
 } as const;
 
 export type TokenSymbol = keyof typeof TOKENS;
-
