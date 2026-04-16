@@ -54,7 +54,7 @@ export function useStaking(address: string | null, wallet: any | null) {
           config.stakerAddress,
           strkToken,
           provider,
-          sdk.getStakingConfig()
+          (sdk as any).getStakingConfig()
         );
 
         const poolAddress = stakingInstance.poolAddress;
