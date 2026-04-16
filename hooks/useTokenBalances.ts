@@ -8,12 +8,8 @@ const RPC_URL = "https://api.cartridge.gg/x/starknet/mainnet";
 
 async function fetchPrices(): Promise<Record<string, any>> {
   try {
-    const ids = Object.values(TOKENS).map((t) => t.coingeckoId).join(",");
-    const res = await fetch(
-      "https://api.coingecko.com/api/v3/simple/price?ids=" + ids + "&vs_currencies=usd&include_24hr_change=true",
-      { cache: "no-store" }
-    );
-    if (!res.ok) throw new Error("CoinGecko failed");
+    const res = await fetch("/api/prices", { cache: "no-store" });
+    if (!res.ok) throw new Error("Price fetch failed");
     return await res.json();
   } catch {
     return {
