@@ -7,16 +7,16 @@ import { mainnetValidators, Staking, Amount } from "starkzap";
 
 const POOLS_CONFIG = [
   {
-    name: "Ready (Argent)",
-    stakerAddress: mainnetValidators.READY_PREV_ARGENT.stakerAddress,
+    name: "Karnot",
+    stakerAddress: mainnetValidators.KARNOT.stakerAddress,
   },
   {
-    name: "Braavos",
-    stakerAddress: mainnetValidators.BRAAVOS.stakerAddress,
+    name: "Nethermind",
+    stakerAddress: mainnetValidators.NETHERMIND.stakerAddress,
   },
   {
-    name: "AVNU",
-    stakerAddress: mainnetValidators.AVNU.stakerAddress,
+    name: "Cartridge",
+    stakerAddress: mainnetValidators.CARTRIDGE.stakerAddress,
   },
 ];
 
