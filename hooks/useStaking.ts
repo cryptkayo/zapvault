@@ -90,7 +90,7 @@ export function useStaking(address: string | null, wallet: any | null) {
 
     for (const [poolAddress, stakingInstance] of Object.entries(stakingInstances)) {
       try {
-        const position = await stakingInstance.getPosition(address as any);
+        const position = await stakingInstance.getPosition({ address } as any);
         if (position && !position.staked.isZero()) {
           const pool = pools.find((p) => p.id === poolAddress);
           positions.push({
@@ -132,7 +132,7 @@ export function useStaking(address: string | null, wallet: any | null) {
         const strkToken = (stakingInstance as any).token;
         const amountParsed = Amount.parse(amount, strkToken);
 
-        const isMember = await stakingInstance.isMember(walletAddress as any);
+        const isMember = await stakingInstance.isMember({ address: walletAddress } as any);
         console.log("Is member:", isMember);
 
         const calls = isMember
