@@ -18,6 +18,9 @@ interface WalletContextType extends WalletState {
 
 const WalletContext = createContext<WalletContextType | null>(null);
 
+// Store browser wallet reference globally so it persists
+let globalBrowserWallet: any = null;
+
 export function WalletProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<WalletState>({
     address: null,
@@ -46,16 +49,23 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       }
 
       await browserWallet.enable({ starknetVersion: "v5" });
+      
+      // Store globally for later use
+      globalBrowserWallet = browserWallet;
+      
       const address = browserWallet.account?.address || browserWallet.selectedAddress;
 
-      // Build wallet object using browser wallet directly
-      // This triggers real Argent X popups for transaction approval
+      console.log("Connected wallet account:", browserWallet.account);
+      console.log("Connected wallet address:", address);
+
       const sdkWallet = {
         address,
-        browserAccount: browserWallet.account,
 
-        // Transfer tokens using Argent X execute
+        // Transfer tokens - uses globalBrowserWallet to always get fresh account
         transfer: async (token: any, transfers: any[]) => {
+          const account = globalBrowserWallet?.account;
+          if (!account) throw new Error("No account available");
+          
           const recipient = transfers[0].to.toString();
           const amount = transfers[0].amount;
           const amountStr = typeof amount === "bigint"
@@ -64,45 +74,56 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
             ? amount.toBase().toString()
             : amount.toString();
 
-          const tx = await browserWallet.account.execute([{
-            contractAddress: token.address ?? token,
+          const tokenAddress = token.address ?? token.toString();
+
+          console.log("Executing transfer:", { tokenAddress, recipient, amountStr });
+
+          const tx = await account.execute([{
+            contractAddress: tokenAddress,
             entrypoint: "transfer",
             calldata: [recipient, amountStr, "0"],
           }]);
+          
           return {
             hash: tx.transaction_hash,
             explorerUrl: "https://voyager.online/tx/" + tx.transaction_hash,
             wait: async () => {
-              // Poll for receipt
               await new Promise((res) => setTimeout(res, 3000));
             },
           };
         },
 
-        // Stake STRK using Argent X execute
+        // Stake STRK
         stake: async (pool: any, amount: any) => {
+          const account = globalBrowserWallet?.account;
+          if (!account) throw new Error("No account available");
+
           const STRK_ADDRESS = "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d";
           const poolAddress = pool.toString();
-          const amountStr = typeof amount === "bigint"
-            ? amount.toString()
+          const amountBig = typeof amount === "bigint"
+            ? amount
             : amount.toBase
-            ? amount.toBase().toString()
-            : (parseFloat(amount.toString()) * 1e18).toString();
+            ? amount.toBase()
+            : BigInt(Math.floor(parseFloat(amount.toString()) * 1e18));
 
-          const tx = await browserWallet.account.execute([
-            // First approve STRK spending
+          const amountLow = (amountBig & BigInt("0xffffffffffffffffffffffffffffffff")).toString();
+          const amountHigh = (amountBig >> BigInt(128)).toString();
+
+          console.log("Executing stake:", { poolAddress, amountLow, amountHigh });
+
+          const tx = await account.execute([
             {
               contractAddress: STRK_ADDRESS,
               entrypoint: "approve",
-              calldata: [poolAddress, amountStr, "0"],
+              calldata: [poolAddress, amountLow, amountHigh],
             },
-            // Then enter delegation pool
             {
               contractAddress: poolAddress,
               entrypoint: "enter_delegation_pool",
-              calldata: [address, amountStr, "0"],
+              calldata: [address, amountLow, amountHigh],
             },
           ]);
+
           return {
             hash: tx.transaction_hash,
             explorerUrl: "https://voyager.online/tx/" + tx.transaction_hash,
@@ -114,12 +135,16 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
         // Claim rewards
         claimPoolRewards: async (pool: any) => {
+          const account = globalBrowserWallet?.account;
+          if (!account) throw new Error("No account available");
+
           const poolAddress = pool.toString();
-          const tx = await browserWallet.account.execute([{
+          const tx = await account.execute([{
             contractAddress: poolAddress,
             entrypoint: "claim_rewards",
             calldata: [address],
           }]);
+
           return {
             hash: tx.transaction_hash,
             explorerUrl: "https://voyager.online/tx/" + tx.transaction_hash,
@@ -131,18 +156,25 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
         // Exit pool (unstake)
         exitPoolIntent: async (pool: any, amount: any) => {
-          const poolAddress = pool.toString();
-          const amountStr = typeof amount === "bigint"
-            ? amount.toString()
-            : amount.toBase
-            ? amount.toBase().toString()
-            : (parseFloat(amount.toString()) * 1e18).toString();
+          const account = globalBrowserWallet?.account;
+          if (!account) throw new Error("No account available");
 
-          const tx = await browserWallet.account.execute([{
+          const poolAddress = pool.toString();
+          const amountBig = typeof amount === "bigint"
+            ? amount
+            : amount.toBase
+            ? amount.toBase()
+            : BigInt(Math.floor(parseFloat(amount.toString()) * 1e18));
+
+          const amountLow = (amountBig & BigInt("0xffffffffffffffffffffffffffffffff")).toString();
+          const amountHigh = (amountBig >> BigInt(128)).toString();
+
+          const tx = await account.execute([{
             contractAddress: poolAddress,
             entrypoint: "exit_delegation_pool_intent",
-            calldata: [amountStr, "0"],
+            calldata: [amountLow, amountHigh],
           }]);
+
           return {
             hash: tx.transaction_hash,
             explorerUrl: "https://voyager.online/tx/" + tx.transaction_hash,
@@ -152,19 +184,9 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
           };
         },
 
-        // Swap via AVNU
-        swap: async (request: any) => {
-          // Will be handled by useSwap hook fallback
-          throw new Error("Use swap hook directly");
-        },
-
-        // Get pool position
-        getPoolPosition: async (pool: any) => {
-          return null;
-        },
-
-        // Balance check handled by useTokenBalances directly via RPC
+        getPoolPosition: async () => null,
         balanceOf: null,
+        swap: null,
       };
 
       setState((s) => ({
@@ -181,6 +203,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const disconnect = useCallback(() => {
+    globalBrowserWallet = null;
     setState({
       address: null,
       isConnected: false,
