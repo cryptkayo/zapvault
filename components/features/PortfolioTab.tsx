@@ -26,13 +26,13 @@ const { balances, isLoading, totalUsd, refetch } = useTokenBalances(address, wal
   const hasAssets = balances.some((b) => b.usdValue > 0);
 
   const handleSend = async () => {
-    // Direct test
-  const argent = (window as any).starknet_argentX;
-  console.log("Browser wallet:", argent);
-  console.log("Account:", argent?.account);
-  console.log("Execute method:", argent?.account?.execute);
-  if (!sendToken || !recipient || !sendAmount || !address || !wallet) return;
-  if (!recipient.startsWith("0x") || recipient.length < 10) {
+    const argent = (window as any).starknet_argentX;
+    console.log("Browser wallet:", argent);
+    console.log("Account:", argent?.account);
+    console.log("Execute method:", typeof argent?.account?.execute);
+    console.log("Wallet object:", wallet);
+    if (!sendToken || !recipient || !sendAmount || !address || !wallet) return;
+    if (!recipient.startsWith("0x") || recipient.length < 10) {
     toast.error("Invalid address", { description: "Please enter a valid Starknet address." });
     return;
   }
