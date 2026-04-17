@@ -49,8 +49,8 @@ export function useStaking(address: string | null, wallet: any | null) {
             validator: pool?.validator ?? "",
             apy: pool?.apy ?? 0,
             totalStaked: pool?.totalStaked ?? "0",
-            myStaked: position.staked.toFormatted(),
-            myRewards: position.rewards.toFormatted(),
+            myStaked: position.staked.toUnit(),
+            myRewards: position.rewards.toUnit(),
             status: "active",
           });
         }
@@ -102,7 +102,7 @@ export function useStaking(address: string | null, wallet: any | null) {
             const stakerPools = await sdk.getStakerPools(config.stakerAddress);
             const strkPool = stakerPools.find((p: any) => p.token?.symbol === "STRK");
             if (strkPool?.amount) {
-              totalStaked = strkPool.amount.toFormatted();
+              totalStaked = strkPool.amount.toUnit();
             }
           } catch {
             // non-critical

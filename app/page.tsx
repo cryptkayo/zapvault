@@ -9,6 +9,7 @@ import { PortfolioTab } from "@/components/features/PortfolioTab";
 import { EarnTab } from "@/components/features/EarnTab";
 import { TradeTab } from "@/components/features/TradeTab";
 import { DepositTab } from "@/components/features/DepositTab";
+import { ActivityTab } from "@/components/features/ActivityTab";
 import { ConnectModal } from "@/components/wallet/ConnectModal";
 import { useWallet } from "@/lib/wallet-context";
 import { TabId } from "@/types";
@@ -27,6 +28,7 @@ export default function Home() {
     earn: <EarnTab />,
     trade: <TradeTab />,
     deposit: <DepositTab />,
+    activity: <ActivityTab />,
   };
 
   return (
@@ -94,6 +96,7 @@ export default function Home() {
                   { label: "Swap via AVNU", color: "text-zap-accent", bg: "bg-zap-accent/10 border-zap-accent/20" },
                   { label: "Stake STRK", color: "text-zap-green", bg: "bg-zap-green/10 border-zap-green/20" },
                   { label: "Bridge from ETH", color: "text-zap-accent", bg: "bg-zap-accent/10 border-zap-accent/20" },
+                  { label: "Activity History", color: "text-purple-400", bg: "bg-purple-500/10 border-purple-500/20" },
                 ].map(({ label, color, bg }) => (
                   <span
                     key={label}
@@ -140,7 +143,7 @@ export default function Home() {
                 <ArrowLeft className="w-4 h-4" />
               </button>
               <TabNav activeTab={activeTab} onChange={setActiveTab} />
-              <div className="w-24" />
+              <div className="w-8" />
             </div>
 
             <AnimatePresence mode="wait">

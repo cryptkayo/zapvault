@@ -58,4 +58,4 @@ export interface WalletState {
   isDemoMode: boolean;
 }
 
-export type TabId = "portfolio" | "earn" | "trade" | "deposit";
+export type TabId = "portfolio" | "earn" | "trade" | "deposit" | "activity";

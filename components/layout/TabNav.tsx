@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { BarChart3, TrendingUp, ArrowLeftRight, ArrowDownToLine } from "lucide-react";
+import { BarChart3, TrendingUp, ArrowLeftRight, ArrowDownToLine, Clock } from "lucide-react";
 import { TabId } from "@/types";
 import { cn } from "@/lib/utils";
 
@@ -15,6 +15,7 @@ const TABS = [
   { id: "earn" as TabId, label: "Earn", Icon: TrendingUp },
   { id: "trade" as TabId, label: "Trade", Icon: ArrowLeftRight },
   { id: "deposit" as TabId, label: "Bridge", Icon: ArrowDownToLine },
+  { id: "activity" as TabId, label: "Activity", Icon: Clock },
 ];
 
 export function TabNav({ activeTab, onChange }: TabNavProps) {
@@ -25,7 +26,7 @@ export function TabNav({ activeTab, onChange }: TabNavProps) {
           key={id}
           onClick={() => onChange(id)}
           className={cn(
-            "relative flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-display font-semibold transition-colors duration-200",
+            "relative flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-display font-semibold transition-colors duration-200",
             activeTab === id ? "text-zap-bg" : "text-zap-subtext hover:text-zap-text"
           )}
         >
