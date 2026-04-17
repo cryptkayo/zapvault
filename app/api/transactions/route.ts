@@ -67,7 +67,7 @@ export async function GET(req: NextRequest) {
     );
 
     // Fetch block timestamps
-    const blockNumbers = [...new Set(limited.map((e) => e.block_number).filter(Boolean))];
+    const blockNumbers = Array.from(new Set(limited.map((e) => e.block_number).filter(Boolean)));
     const blockTimestamps: Record<number, number> = {};
     await Promise.allSettled(
       blockNumbers.slice(0, 10).map(async (bn) => {
