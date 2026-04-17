@@ -1,22 +1,26 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { sdk } from "@/lib/sdk";
 import { SwapQuote } from "@/types";
-import { mainnetTokens, AvnuSwapProvider, Amount, ChainId } from "starkzap";
+import { mainnetTokens, AvnuSwapProvider, Amount } from "starkzap";
+import { TOKENS } from "@/lib/sdk";
 
-// Map our local token addresses to SDK token objects
 function getSdkToken(address: string) {
   return Object.values(mainnetTokens).find(
     (t: any) => t.address.toLowerCase() === address.toLowerCase()
   ) as any | undefined;
 }
 
+function getSymbolFromAddress(address: string): string {
+  const token = Object.values(TOKENS).find((t) => t.address === address);
+  return token?.symbol ?? "ETH";
+}
+
 const avnu = new AvnuSwapProvider();
 
 export function useSwap(address: string | null, wallet: any | null) {
   const [quote, setQuote] = useState<SwapQuote | null>(null);
-  const [rawQuote, setRawQuote] = useState<any>(null); // SDK quote for execution
+  const [rawQuote, setRawQuote] = useState<any>(null);
   const [isQuoting, setIsQuoting] = useState(false);
   const [isSwapping, setIsSwapping] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -28,20 +32,17 @@ export function useSwap(address: string | null, wallet: any | null) {
       setRawQuote(null);
       return;
     }
-
     setIsQuoting(true);
     setError(null);
-
     try {
       const tokenIn = getSdkToken(fromAddress);
       const tokenOut = getSdkToken(toAddress);
-
       if (!tokenIn || !tokenOut) throw new Error("Token not found in SDK");
 
       const amountIn = Amount.parse(amount, tokenIn);
-      const chainId = ChainId.MAINNET;
+      // Use string literal for chainId — avoids ChainId class import issues
+      const chainId = { toLiteral: () => "SN_MAIN", isMainnet: () => true } as any;
 
-      // Get real quote from AVNU via SDK
       const sdkQuote = await avnu.getQuote({
         chainId,
         tokenIn,
@@ -50,13 +51,9 @@ export function useSwap(address: string | null, wallet: any | null) {
         takerAddress: address ?? undefined,
       });
 
-      // Store raw quote for execution
       setRawQuote({ tokenIn, tokenOut, amountIn, chainId });
 
-      // Calculate output amount
-      const amountOutRaw = sdkQuote.amountOutBase;
-      const outAmount = Amount.fromRaw(amountOutRaw, tokenOut);
-
+      const outAmount = Amount.fromRaw(sdkQuote.amountOutBase, tokenOut);
       const priceImpact = sdkQuote.priceImpactBps != null
         ? Number(sdkQuote.priceImpactBps) / 100
         : 0.04;
@@ -68,7 +65,7 @@ export function useSwap(address: string | null, wallet: any | null) {
         toAmount: outAmount.toUnit(),
         priceImpact,
         route: [tokenIn.symbol, tokenOut.symbol],
-        estimatedGas: "Gasless via Starkzap",
+        estimatedGas: "Gasless",
         expiresAt: Date.now() + 30_000,
       });
     } catch (e: any) {
@@ -85,18 +82,14 @@ export function useSwap(address: string | null, wallet: any | null) {
     if (!address || !wallet) throw new Error("Wallet not connected");
     const account = wallet.browserAccount || wallet.getAccount?.();
     if (!account) throw new Error("No account available");
-    if (!rawQuote) throw new Error("No quote available — please refresh the quote");
+    if (!rawQuote) throw new Error("No quote available — please refresh");
 
     setIsSwapping(true);
     setError(null);
-
     try {
       const { tokenIn, tokenOut, amountIn, chainId } = rawQuote;
-
-      // Convert slippage % to bps (0.5% = 50 bps)
       const slippageBps = BigInt(Math.round(slippage * 100));
 
-      // Get fresh swap calls from AVNU SDK
       const prepared = await avnu.prepareSwap({
         chainId,
         tokenIn,
@@ -106,9 +99,7 @@ export function useSwap(address: string | null, wallet: any | null) {
         slippageBps,
       });
 
-      console.log("Swap calls:", prepared.calls.length, "calls prepared");
-
-      // Execute via wallet's browserAccount — triggers Argent X popup
+      console.log("Swap calls prepared:", prepared.calls.length);
       const tx = await account.execute(prepared.calls);
       console.log("Swap tx:", tx.transaction_hash);
 
