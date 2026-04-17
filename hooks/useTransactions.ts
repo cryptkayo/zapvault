@@ -4,13 +4,15 @@ import { useState, useEffect, useCallback } from "react";
 
 const RPC_URL = "https://api.cartridge.gg/x/starknet/mainnet";
 
-// Known contract addresses for type detection
+// Transfer event selector (keccak of "Transfer")
+const TRANSFER_KEY = "0x0099cd8bde557814842a3121e8ddfd433a539b8c9f14bf31ebf108d12e6196e9";
+
 const KNOWN_CONTRACTS: Record<string, string> = {
-  "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d": "STRK",
-  "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7": "ETH",
-  "0x053c91253bc9682c04929ca02ed00b3e423f6710d2ee7e0d5ebb06f3ecf368a8": "USDC",
-  "0x068f5c6a61780768455de69077e07e89787839bf8166decfbf92b645209c0fb8": "USDT",
-  "0x00ca1702e64c81d9a07b86bd2c540188d92a2c73cf5cc0e508d949015e7e84a7": "STAKING",
+  "0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d": "STRK Token",
+  "0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7": "ETH Token",
+  "0x053c91253bc9682c04929ca02ed00b3e423f6710d2ee7e0d5ebb06f3ecf368a8": "USDC Token",
+  "0x068f5c6a61780768455de69077e07e89787839bf8166decfbf92b645209c0fb8": "USDT Token",
+  "0x00ca1702e64c81d9a07b86bd2c540188d92a2c73cf5cc0e508d949015e7e84a7": "Staking Contract",
 };
 
 const ENTRYPOINT_TYPES: Record<string, { type: string; label: string; color: string }> = {
@@ -22,9 +24,11 @@ const ENTRYPOINT_TYPES: Record<string, { type: string; label: string; color: str
   "exit_delegation_pool_action": { type: "unstake", label: "Unstake", color: "text-orange-400" },
   "claim_rewards": { type: "rewards", label: "Claim Rewards", color: "text-purple-400" },
   "multi_route_swap": { type: "swap", label: "Swap", color: "text-cyan-400" },
+  "swap_exact_token_to": { type: "swap", label: "Swap", color: "text-cyan-400" },
   "swap": { type: "swap", label: "Swap", color: "text-cyan-400" },
-  "deposit": { type: "bridge", label: "Bridge Deposit", color: "text-pink-400" },
-  "withdraw": { type: "bridge", label: "Bridge Withdraw", color: "text-pink-400" },
+  "deposit": { type: "bridge", label: "Bridge In", color: "text-pink-400" },
+  "withdraw": { type: "bridge", label: "Bridge Out", color: "text-pink-400" },
+  "__execute__": { type: "execute", label: "Execute", color: "text-zap-subtext" },
 };
 
 export interface Transaction {
@@ -51,6 +55,17 @@ async function rpcCall(method: string, params: any[]) {
   return data.result;
 }
 
+async function getBlockTimestamp(blockNumber: number): Promise<number> {
+  try {
+    const block = await rpcCall("starknet_getBlockWithTxHashes", [
+      { block_number: blockNumber }
+    ]);
+    return block?.timestamp ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
 export function useTransactions(address: string | null) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -62,63 +77,125 @@ export function useTransactions(address: string | null) {
     setError(null);
 
     try {
-      // Use starknet_getEvents to find all transactions from this address
-      // We look for Transfer events and execute calls involving our address
-      const result = await rpcCall("starknet_getEvents", [{
-        address: address,
-        from_block: { block_number: 0 },
-        to_block: "latest",
-        chunk_size: 50,
-      }]);
+      // Try our API proxy first (Starkscan)
+      let txs: Transaction[] = [];
 
-      const txHashes = new Set<string>();
-      if (result?.events) {
-        result.events.forEach((e: any) => {
-          if (e.transaction_hash) txHashes.add(e.transaction_hash);
-        });
-      }
-
-      // Also fetch transactions sent FROM this address via Voyager API
-      let voyagerTxs: any[] = [];
       try {
-        const voyagerRes = await fetch(
-          `https://api.voyager.online/beta/txns?to=${address}&ps=30&p=1`,
-          { headers: { "Accept": "application/json" } }
-        );
-        if (voyagerRes.ok) {
-          const voyagerData = await voyagerRes.json();
-          voyagerTxs = voyagerData?.items ?? [];
+        const res = await fetch(`/api/transactions?address=${address}`);
+        if (res.ok) {
+          const data = await res.json();
+          // Starkscan format
+          const items = data?.data ?? data?.items ?? [];
+          if (items.length > 0) {
+            txs = items.map((tx: any) => {
+              const entrypoint = (
+                tx.entry_point_selector_name ??
+                tx.function_name ??
+                tx.entrypoint ??
+                ""
+              ).toLowerCase().replace(/^0x[0-9a-f]+$/, "");
+
+              const contractAddr = (
+                tx.contract_address ??
+                tx.to ??
+                ""
+              ).toLowerCase();
+
+              const typeInfo = ENTRYPOINT_TYPES[entrypoint] ?? {
+                type: "contract",
+                label: entrypoint ? entrypoint.replace(/_/g, " ") : "Contract Call",
+                color: "text-zap-subtext",
+              };
+
+              const contractName =
+                KNOWN_CONTRACTS[contractAddr] ??
+                (contractAddr ? contractAddr.slice(0, 8) + "..." : "Unknown");
+
+              const hash = tx.transaction_hash ?? tx.hash ?? "";
+
+              return {
+                hash,
+                type: typeInfo.type,
+                label: typeInfo.label,
+                color: typeInfo.color,
+                timestamp: tx.timestamp ?? tx.block_timestamp ?? 0,
+                status: (tx.status === "Rejected" || tx.revert_error || tx.execution_status === "REVERTED")
+                  ? "failed"
+                  : "success",
+                contractAddress: contractAddr,
+                contractName,
+                entrypoint,
+                explorerUrl: `https://voyager.online/tx/${hash}`,
+              } as Transaction;
+            });
+          }
         }
       } catch {
-        // Voyager API fallback failed — use RPC only
+        // proxy failed, fall through to RPC
       }
 
-      // Process Voyager transactions
-      const processed: Transaction[] = voyagerTxs.map((tx: any) => {
-        const entrypoint = tx.entry_point_selector_name?.toLowerCase() ?? "";
-        const contractAddr = (tx.contract_address ?? "").toLowerCase();
-        const typeInfo = ENTRYPOINT_TYPES[entrypoint] ?? {
-          type: "contract",
-          label: entrypoint || "Contract Call",
-          color: "text-zap-subtext",
-        };
-        const contractName = KNOWN_CONTRACTS[contractAddr] ?? contractAddr.slice(0, 8) + "...";
+      // Fallback: use starknet_getEvents via RPC to find Transfer events involving this address
+      if (txs.length === 0) {
+        const seenHashes = new Set<string>();
 
-        return {
-          hash: tx.transaction_hash ?? tx.hash ?? "",
-          type: typeInfo.type,
-          label: typeInfo.label,
-          color: typeInfo.color,
-          timestamp: tx.timestamp ?? 0,
-          status: tx.status === "Rejected" || tx.revert_error ? "failed" : "success",
-          contractAddress: contractAddr,
-          contractName,
-          entrypoint,
-          explorerUrl: `https://voyager.online/tx/${tx.transaction_hash ?? tx.hash}`,
-        };
-      });
+        // Get events where address is sender (key[1]) or receiver (key[2])
+        const [sentEvents, receivedEvents] = await Promise.allSettled([
+          rpcCall("starknet_getEvents", [{
+            from_block: { block_number: 0 },
+            to_block: "latest",
+            keys: [[TRANSFER_KEY], [address]],
+            chunk_size: 20,
+          }]),
+          rpcCall("starknet_getEvents", [{
+            from_block: { block_number: 0 },
+            to_block: "latest",
+            keys: [[TRANSFER_KEY], [], [address]],
+            chunk_size: 20,
+          }]),
+        ]);
 
-      setTransactions(processed);
+        const allEvents: any[] = [];
+        if (sentEvents.status === "fulfilled") allEvents.push(...(sentEvents.value?.events ?? []));
+        if (receivedEvents.status === "fulfilled") allEvents.push(...(receivedEvents.value?.events ?? []));
+
+        // Deduplicate by tx hash
+        const uniqueEvents = allEvents.filter((e) => {
+          if (seenHashes.has(e.transaction_hash)) return false;
+          seenHashes.add(e.transaction_hash);
+          return true;
+        });
+
+        // Fetch timestamps in parallel (limit to 10)
+        const limited = uniqueEvents.slice(0, 10);
+        const timestampPromises = limited.map((e) =>
+          e.block_number ? getBlockTimestamp(e.block_number) : Promise.resolve(0)
+        );
+        const timestamps = await Promise.all(timestampPromises);
+
+        txs = limited.map((e, i) => {
+          const contractAddr = (e.from_address ?? "").toLowerCase();
+          const contractName = KNOWN_CONTRACTS[contractAddr] ?? contractAddr.slice(0, 8) + "...";
+          const isSent = e.keys?.[1]?.toLowerCase() === address.toLowerCase();
+
+          return {
+            hash: e.transaction_hash ?? "",
+            type: "transfer",
+            label: isSent ? "Send" : "Receive",
+            color: isSent ? "text-blue-400" : "text-green-400",
+            timestamp: timestamps[i],
+            status: "success",
+            contractAddress: contractAddr,
+            contractName,
+            entrypoint: "transfer",
+            explorerUrl: `https://voyager.online/tx/${e.transaction_hash}`,
+          } as Transaction;
+        });
+
+        // Sort by timestamp desc
+        txs.sort((a, b) => b.timestamp - a.timestamp);
+      }
+
+      setTransactions(txs);
     } catch (e: any) {
       setError(e.message);
     } finally {
