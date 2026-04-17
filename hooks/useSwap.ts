@@ -1,129 +1,128 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { TOKENS } from "@/lib/sdk";
+import { sdk } from "@/lib/sdk";
 import { SwapQuote } from "@/types";
+import { mainnetTokens, AvnuSwapProvider, Amount, ChainId } from "starkzap";
 
-const MOCK_RATES: Record<string, Record<string, number>> = {
-  ETH: { STRK: 3500, USDC: 3200, USDT: 3200 },
-  STRK: { ETH: 0.000285, USDC: 0.92, USDT: 0.92 },
-  USDC: { ETH: 0.000312, STRK: 1.08, USDT: 1.0 },
-  USDT: { ETH: 0.000312, STRK: 1.08, USDC: 1.0 },
-};
-
-function getSymbolFromAddress(address: string): string {
-  const token = Object.values(TOKENS).find((t) => t.address === address);
-  return token?.symbol ?? "ETH";
+// Map our local token addresses to SDK token objects
+function getSdkToken(address: string) {
+  return Object.values(mainnetTokens).find(
+    (t: any) => t.address.toLowerCase() === address.toLowerCase()
+  ) as any | undefined;
 }
+
+const avnu = new AvnuSwapProvider();
 
 export function useSwap(address: string | null, wallet: any | null) {
   const [quote, setQuote] = useState<SwapQuote | null>(null);
+  const [rawQuote, setRawQuote] = useState<any>(null); // SDK quote for execution
   const [isQuoting, setIsQuoting] = useState(false);
   const [isSwapping, setIsSwapping] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastTxHash, setLastTxHash] = useState<string | null>(null);
 
-  const getQuote = useCallback(async (fromToken: string, toToken: string, amount: string) => {
-    if (!amount || parseFloat(amount) === 0) {
+  const getQuote = useCallback(async (fromAddress: string, toAddress: string, amount: string) => {
+    if (!amount || parseFloat(amount) <= 0) {
       setQuote(null);
+      setRawQuote(null);
       return;
     }
+
     setIsQuoting(true);
     setError(null);
-    try {
-      // Try real SDK quote via wallet.getQuote()
-      if (wallet && wallet.getQuote) {
-        // @ts-ignore
-        const { mainnetTokens, Amount, fromAddress } = await import("starkzap");
-        const fromSymbol = getSymbolFromAddress(fromToken);
-        const toSymbol = getSymbolFromAddress(toToken);
-        // @ts-ignore
-        const fromSdkToken = Object.values(mainnetTokens).find((t: any) => t.symbol === fromSymbol);
-        // @ts-ignore
-        const toSdkToken = Object.values(mainnetTokens).find((t: any) => t.symbol === toSymbol);
 
-        if (fromSdkToken && toSdkToken) {
-          // @ts-ignore
-          const fromAmount = Amount.parse(amount, fromSdkToken);
-          const q = await wallet.getQuote({
-            sell: { token: fromSdkToken, amount: fromAmount },
-            buy: { token: toSdkToken },
-          });
-          const toAmount = q.buy?.amount?.toUnit?.() ?? "0";
-          setQuote({
-            fromToken,
-            toToken,
-            fromAmount: amount,
-            toAmount,
-            priceImpact: 0.04,
-            route: [fromToken, toToken],
-            estimatedGas: "0.0008",
-            expiresAt: Date.now() + 30_000,
-          });
-          return;
-        }
-      }
-      throw new Error("SDK quote unavailable");
-    } catch {
-      // Fallback to mock rates
-      const fromSymbol = getSymbolFromAddress(fromToken);
-      const toSymbol = getSymbolFromAddress(toToken);
-      const rate = MOCK_RATES[fromSymbol]?.[toSymbol] ?? 1;
-      const toAmount = (parseFloat(amount) * rate).toFixed(6);
+    try {
+      const tokenIn = getSdkToken(fromAddress);
+      const tokenOut = getSdkToken(toAddress);
+
+      if (!tokenIn || !tokenOut) throw new Error("Token not found in SDK");
+
+      const amountIn = Amount.parse(amount, tokenIn);
+      const chainId = ChainId.MAINNET;
+
+      // Get real quote from AVNU via SDK
+      const sdkQuote = await avnu.getQuote({
+        chainId,
+        tokenIn,
+        tokenOut,
+        amountIn,
+        takerAddress: address ?? undefined,
+      });
+
+      // Store raw quote for execution
+      setRawQuote({ tokenIn, tokenOut, amountIn, chainId });
+
+      // Calculate output amount
+      const amountOutRaw = sdkQuote.amountOutBase;
+      const outAmount = Amount.fromRaw(amountOutRaw, tokenOut);
+
+      const priceImpact = sdkQuote.priceImpactBps != null
+        ? Number(sdkQuote.priceImpactBps) / 100
+        : 0.04;
+
       setQuote({
-        fromToken,
-        toToken,
+        fromToken: fromAddress,
+        toToken: toAddress,
         fromAmount: amount,
-        toAmount,
-        priceImpact: parseFloat(amount) > 10 ? 0.12 : 0.04,
-        route: [fromToken, toToken],
-        estimatedGas: "0.0008",
+        toAmount: outAmount.toUnit(),
+        priceImpact,
+        route: [tokenIn.symbol, tokenOut.symbol],
+        estimatedGas: "Gasless via Starkzap",
         expiresAt: Date.now() + 30_000,
       });
+    } catch (e: any) {
+      console.error("Quote error:", e.message);
+      setError(e.message);
+      setQuote(null);
+      setRawQuote(null);
     } finally {
       setIsQuoting(false);
     }
-  }, [wallet]);
+  }, [address]);
 
   const executeSwap = useCallback(async (q: SwapQuote, slippage: number = 0.5) => {
     if (!address || !wallet) throw new Error("Wallet not connected");
+    const account = wallet.browserAccount || wallet.getAccount?.();
+    if (!account) throw new Error("No account available");
+    if (!rawQuote) throw new Error("No quote available — please refresh the quote");
+
     setIsSwapping(true);
     setError(null);
-    try {
-      // @ts-ignore
-      const { mainnetTokens, Amount } = await import("starkzap");
-      const fromSymbol = getSymbolFromAddress(q.fromToken);
-      const toSymbol = getSymbolFromAddress(q.toToken);
-      // @ts-ignore
-      const fromSdkToken = Object.values(mainnetTokens).find((t: any) => t.symbol === fromSymbol);
-      // @ts-ignore
-      const toSdkToken = Object.values(mainnetTokens).find((t: any) => t.symbol === toSymbol);
 
-      if (fromSdkToken && toSdkToken && wallet.swap) {
-        // @ts-ignore
-        const fromAmount = Amount.parse(q.fromAmount, fromSdkToken);
-        const tx = await wallet.swap({
-          sell: { token: fromSdkToken, amount: fromAmount },
-          buy: { token: toSdkToken },
-          slippage,
-        });
-        await tx.wait();
-        setLastTxHash(tx.hash);
-        setQuote(null);
-        return tx.hash;
-      }
-      throw new Error("SDK swap unavailable");
-    } catch {
-      // Fallback simulation
-      await new Promise((res) => setTimeout(res, 2000));
-      const mockHash = "0x" + Math.random().toString(16).slice(2, 18);
-      setLastTxHash(mockHash);
+    try {
+      const { tokenIn, tokenOut, amountIn, chainId } = rawQuote;
+
+      // Convert slippage % to bps (0.5% = 50 bps)
+      const slippageBps = BigInt(Math.round(slippage * 100));
+
+      // Get fresh swap calls from AVNU SDK
+      const prepared = await avnu.prepareSwap({
+        chainId,
+        tokenIn,
+        tokenOut,
+        amountIn,
+        takerAddress: address,
+        slippageBps,
+      });
+
+      console.log("Swap calls:", prepared.calls.length, "calls prepared");
+
+      // Execute via wallet's browserAccount — triggers Argent X popup
+      const tx = await account.execute(prepared.calls);
+      console.log("Swap tx:", tx.transaction_hash);
+
+      setLastTxHash(tx.transaction_hash);
       setQuote(null);
-      return mockHash;
+      setRawQuote(null);
+      return tx.transaction_hash;
+    } catch (e: any) {
+      setError(e.message);
+      throw e;
     } finally {
       setIsSwapping(false);
     }
-  }, [address, wallet]);
+  }, [address, wallet, rawQuote]);
 
   return { quote, isQuoting, isSwapping, error, lastTxHash, getQuote, executeSwap };
 }

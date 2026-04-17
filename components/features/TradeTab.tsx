@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { ArrowLeftRight, ChevronDown, Loader2, CheckCircle, Lock, ExternalLink, Settings, Info } from "lucide-react";
+import { ArrowLeftRight, ChevronDown, Loader2, CheckCircle, Lock, ExternalLink, Settings, Zap } from "lucide-react";
 import { useWallet } from "@/lib/wallet-context";
+import { useTokenBalances } from "@/hooks/useTokenBalances";
 import { TOKENS, NETWORKS } from "@/lib/sdk";
 import { useSwap } from "@/hooks/useSwap";
 import { cn, formatNumber } from "@/lib/utils";
@@ -21,6 +22,7 @@ type TokenType = typeof TOKENS[keyof typeof TOKENS];
 
 export function TradeTab() {
   const { address, isConnected, wallet } = useWallet();
+  const { balances } = useTokenBalances(address);
   const { quote, isQuoting, isSwapping, lastTxHash, getQuote, executeSwap } = useSwap(address, wallet);
 
   const [fromToken, setFromToken] = useState<TokenType>(TOKENS.ETH);
@@ -29,11 +31,24 @@ export function TradeTab() {
   const [slippage, setSlippage] = useState(0.5);
   const [showSettings, setShowSettings] = useState(false);
 
+  // Get balance for selected from token
+  const fromBalance = balances.find((b) => b.symbol === fromToken.symbol);
+  const fromBalanceFormatted = fromBalance?.formatted ?? "0";
+
   const handleFromAmountChange = (value: string) => {
     setFromAmount(value);
     if (value && parseFloat(value) > 0) {
       getQuote(fromToken.address, toToken.address, value);
+    } else {
+      getQuote(fromToken.address, toToken.address, "0");
     }
+  };
+
+  const handleMax = () => {
+    if (!fromBalance) return;
+    const maxAmount = fromBalance.formatted;
+    setFromAmount(maxAmount);
+    getQuote(fromToken.address, toToken.address, maxAmount);
   };
 
   const handleFlip = () => {
@@ -52,7 +67,7 @@ export function TradeTab() {
       const hash = await executeSwap(quote, slippage);
       setFromAmount("");
       toast.success("Swap successful!", {
-        description: "View on Voyager: " + NETWORKS.mainnet.explorer + "/tx/" + hash,
+        description: "Tx: " + hash?.slice(0, 10) + "...",
       });
     } catch (err: any) {
       toast.error("Swap failed", { description: err.message });
@@ -66,29 +81,30 @@ export function TradeTab() {
         animate={{ opacity: 1, y: 0 }}
         className="rounded-2xl bg-zap-surface border border-zap-border overflow-hidden"
       >
+        {/* Header */}
         <div className="px-5 py-4 border-b border-zap-border flex items-center justify-between">
           <div>
             <div className="flex items-center gap-2">
               <h3 className="font-display font-bold text-zap-text">Swap Tokens</h3>
-              <span className="px-2 py-0.5 rounded-full bg-zap-green/15 border border-zap-green/30 text-zap-green text-xs font-display font-semibold">
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-zap-green/15 border border-zap-green/30 text-zap-green text-xs font-display font-semibold">
+                <Zap className="w-3 h-3" />
                 Gasless
               </span>
             </div>
-            <p className="text-zap-subtext text-xs mt-0.5">Powered by AVNU · Gasless via Starkzap</p>
+            <p className="text-zap-subtext text-xs mt-0.5">Powered by AVNU · via Starkzap SDK</p>
           </div>
           <button
             onClick={() => setShowSettings(!showSettings)}
             className={cn(
               "p-2 rounded-lg transition-colors",
-              showSettings
-                ? "bg-zap-accent/10 text-zap-accent"
-                : "hover:bg-zap-border text-zap-subtext hover:text-zap-text"
+              showSettings ? "bg-zap-accent/10 text-zap-accent" : "hover:bg-zap-border text-zap-subtext hover:text-zap-text"
             )}
           >
             <Settings className="w-4 h-4" />
           </button>
         </div>
 
+        {/* Settings */}
         {showSettings && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
@@ -103,9 +119,7 @@ export function TradeTab() {
                   onClick={() => setSlippage(s)}
                   className={cn(
                     "px-3 py-1.5 rounded-lg text-xs font-display font-semibold transition-colors",
-                    slippage === s
-                      ? "bg-zap-accent text-zap-bg"
-                      : "bg-zap-border text-zap-subtext hover:text-zap-text"
+                    slippage === s ? "bg-zap-accent text-zap-bg" : "bg-zap-border text-zap-subtext hover:text-zap-text"
                   )}
                 >
                   {s}%
@@ -116,8 +130,20 @@ export function TradeTab() {
         )}
 
         <div className="p-5 space-y-2">
+          {/* From token */}
           <div className="rounded-xl bg-zap-bg border border-zap-border p-4">
-            <p className="text-zap-subtext text-xs mb-3">You pay</p>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-zap-subtext text-xs">You pay</p>
+              {fromBalance && (
+                <button
+                  onClick={handleMax}
+                  className="flex items-center gap-1 text-xs text-zap-subtext hover:text-zap-accent transition-colors"
+                >
+                  Balance: <span className="font-mono text-zap-text">{formatNumber(fromBalanceFormatted)}</span>
+                  <span className="text-zap-accent font-semibold ml-1">MAX</span>
+                </button>
+              )}
+            </div>
             <div className="flex items-center gap-3">
               <input
                 type="number"
@@ -138,6 +164,7 @@ export function TradeTab() {
             </div>
           </div>
 
+          {/* Flip button */}
           <div className="flex justify-center">
             <button
               onClick={handleFlip}
@@ -147,6 +174,7 @@ export function TradeTab() {
             </button>
           </div>
 
+          {/* To token */}
           <div className="rounded-xl bg-zap-bg border border-zap-border p-4">
             <div className="flex items-center justify-between mb-3">
               <p className="text-zap-subtext text-xs">You receive</p>
@@ -183,6 +211,7 @@ export function TradeTab() {
             </div>
           </div>
 
+          {/* Quote details */}
           {quote && (
             <motion.div
               initial={{ opacity: 0, y: 4 }}
@@ -192,15 +221,18 @@ export function TradeTab() {
               <div className="flex items-center justify-between text-xs">
                 <span className="text-zap-subtext">Price impact</span>
                 <span className={cn(
-                  quote.priceImpact > 3 ? "text-zap-orange" :
+                  quote.priceImpact > 3 ? "text-red-400" :
                   quote.priceImpact > 1 ? "text-yellow-400" : "text-zap-green"
                 )}>
                   {quote.priceImpact.toFixed(2)}%
                 </span>
               </div>
               <div className="flex items-center justify-between text-xs">
-                <span className="text-zap-subtext">Est. gas fee</span>
-                <span className="text-zap-text font-mono">{quote.estimatedGas} ETH</span>
+                <span className="text-zap-subtext">Gas fee</span>
+                <span className="flex items-center gap-1 text-zap-green font-semibold">
+                  <Zap className="w-3 h-3" />
+                  Gasless
+                </span>
               </div>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-zap-subtext">Slippage</span>
@@ -213,27 +245,22 @@ export function TradeTab() {
             </motion.div>
           )}
 
-          <div className="flex items-start gap-2 p-3 bg-zap-accent/5 border border-zap-accent/15 rounded-xl">
-            <Info className="w-3.5 h-3.5 text-zap-accent shrink-0 mt-0.5" />
-            <p className="text-zap-subtext text-xs leading-relaxed">
-              Live quotes powered by AVNU aggregator via Starkzap SDK on Starknet Mainnet.
-            </p>
-          </div>
-
+          {/* Last tx */}
           {lastTxHash && (
             <div className="flex items-center gap-2 p-3 bg-zap-green/10 border border-zap-green/20 rounded-xl">
               <CheckCircle className="w-4 h-4 text-zap-green shrink-0" />
               <a
-                href={NETWORKS.mainnet.explorer + "/tx/" + lastTxHash}
+                href={`${NETWORKS.mainnet.explorer}/tx/${lastTxHash}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-zap-green text-xs flex items-center gap-1 hover:underline"
               >
-                Last swap confirmed <ExternalLink className="w-3 h-3" />
+                Swap confirmed — view on Voyager <ExternalLink className="w-3 h-3" />
               </a>
             </div>
           )}
 
+          {/* Action button */}
           {!isConnected ? (
             <div className="flex items-center gap-2 p-3 bg-zap-bg rounded-xl text-zap-subtext text-sm border border-zap-border">
               <Lock className="w-4 h-4" />Connect wallet to swap
@@ -241,13 +268,13 @@ export function TradeTab() {
           ) : (
             <button
               onClick={handleSwap}
-              disabled={!quote || isSwapping || isQuoting}
+              disabled={!quote || isSwapping || isQuoting || !fromAmount}
               className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-zap-accent text-zap-bg font-display font-bold text-sm hover:bg-zap-accent/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-glow-accent"
             >
               {isSwapping ? (
                 <><Loader2 className="w-4 h-4 animate-spin" />Swapping...</>
               ) : (
-                <><ArrowLeftRight className="w-4 h-4" />Swap {fromToken.symbol} to {toToken.symbol}</>
+                <><ArrowLeftRight className="w-4 h-4" />Swap {fromToken.symbol} → {toToken.symbol}</>
               )}
             </button>
           )}
@@ -262,9 +289,9 @@ function TokenSelector({
   options,
   onSelect,
 }: {
-  selected: typeof TOKENS[keyof typeof TOKENS];
-  options: typeof TOKENS[keyof typeof TOKENS][];
-  onSelect: (t: typeof TOKENS[keyof typeof TOKENS]) => void;
+  selected: TokenType;
+  options: TokenType[];
+  onSelect: (t: TokenType) => void;
 }) {
   const [open, setOpen] = useState(false);
 
