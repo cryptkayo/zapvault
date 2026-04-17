@@ -6,8 +6,24 @@ import { mainnetTokens, AvnuSwapProvider, Amount, fromAddress as parseAddress } 
 import { TOKENS } from "@/lib/sdk";
 
 function getSdkToken(address: string) {
-  return Object.values(mainnetTokens).find(
+  // First try exact address match
+  const byAddress = Object.values(mainnetTokens).find(
     (t: any) => t.address.toLowerCase() === address.toLowerCase()
+  ) as any | undefined;
+  if (byAddress) return byAddress;
+
+  // Fallback: match by symbol via local TOKENS map
+  const localToken = Object.values(TOKENS).find(
+    (t) => t.address.toLowerCase() === address.toLowerCase()
+  );
+  if (!localToken) return undefined;
+
+  // Find SDK token by symbol
+  return Object.values(mainnetTokens).find(
+    (t: any) => t.symbol === localToken.symbol ||
+    // Handle USDC.e -> USDC fallback
+    (localToken.symbol === "USDC" && t.symbol === "USDC.e") ||
+    (localToken.symbol === "USDC.e" && t.symbol === "USDC")
   ) as any | undefined;
 }
 

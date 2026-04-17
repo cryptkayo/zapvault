@@ -24,7 +24,7 @@ export function TradeTab() {
   const { address, isConnected, wallet } = useWallet();
   const { balances } = useTokenBalances(address, wallet);
   const { quote, isQuoting, isSwapping, lastTxHash, getQuote, executeSwap } = useSwap(address, wallet);
-  //
+
   const [fromToken, setFromToken] = useState<TokenType>(TOKENS.ETH);
   const [toToken, setToToken] = useState<TokenType>(TOKENS.STRK);
   const [fromAmount, setFromAmount] = useState("");
@@ -243,6 +243,13 @@ export function TradeTab() {
                 <span className="text-zap-text">AVNU Aggregator</span>
               </div>
             </motion.div>
+          )}
+
+          {/* Quote error */}
+          {!quote && !isQuoting && fromAmount && parseFloat(fromAmount) > 0 && (
+            <div className="flex items-start gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-xl">
+              <p className="text-red-400 text-xs">No route found for this pair or amount. Try a larger amount or switch tokens.</p>
+            </div>
           )}
 
           {/* Last tx */}
