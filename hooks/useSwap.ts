@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { SwapQuote } from "@/types";
-import { mainnetTokens, AvnuSwapProvider, Amount } from "starkzap";
+import { mainnetTokens, AvnuSwapProvider, Amount, fromAddress as parseAddress } from "starkzap";
 import { TOKENS } from "@/lib/sdk";
 
 function getSdkToken(address: string) {
@@ -48,7 +48,7 @@ export function useSwap(address: string | null, wallet: any | null) {
         tokenIn,
         tokenOut,
         amountIn,
-        takerAddress: address ?? undefined,
+        takerAddress: address ? (parseAddress(address) as any) : undefined,
       });
 
       setRawQuote({ tokenIn, tokenOut, amountIn, chainId });
@@ -95,7 +95,7 @@ export function useSwap(address: string | null, wallet: any | null) {
         tokenIn,
         tokenOut,
         amountIn,
-        takerAddress: address,
+        takerAddress: parseAddress(address) as any,
         slippageBps,
       });
 
