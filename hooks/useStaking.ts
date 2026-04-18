@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { addTransaction } from "@/hooks/useTransactions";
 import { StakingPool } from "@/types";
 import { sdk } from "@/lib/sdk";
 import { mainnetValidators, Staking, Amount } from "starkzap";
@@ -169,7 +170,14 @@ export function useStaking(address: string | null, wallet: any | null) {
 
         const tx = await account.execute(calls);
         console.log("Stake tx:", tx.transaction_hash);
-
+        addTransaction({
+          hash: tx.transaction_hash,
+          type: "stake",
+          label: "Stake STRK",
+          color: "text-green-400",
+          status: "success",
+          contractName: "Staking Contract",
+        });
         await new Promise((res) => setTimeout(res, 4000));
         await fetchPositions(walletAddress, instancesRef.current, poolsRef.current);
         return tx.transaction_hash;
@@ -196,6 +204,14 @@ export function useStaking(address: string | null, wallet: any | null) {
       try {
         const call = (stakingInstance as any).populateClaimRewards(walletAddress);
         const tx = await account.execute([call]);
+        addTransaction({
+          hash: tx.transaction_hash,
+          type: "rewards",
+          label: "Claim Rewards",
+          color: "text-purple-400",
+          status: "success",
+          contractName: "Staking Contract",
+        });
         await new Promise((res) => setTimeout(res, 4000));
         await fetchPositions(walletAddress, instancesRef.current, poolsRef.current);
         return tx.transaction_hash;
@@ -224,6 +240,14 @@ export function useStaking(address: string | null, wallet: any | null) {
         const amountParsed = Amount.parse(amount, strkToken);
         const call = (stakingInstance as any).populateExitIntent(amountParsed);
         const tx = await account.execute([call]);
+        addTransaction({
+          hash: tx.transaction_hash,
+          type: "unstake",
+          label: "Unstake STRK",
+          color: "text-orange-400",
+          status: "success",
+          contractName: "Staking Contract",
+        });
         await new Promise((res) => setTimeout(res, 4000));
         await fetchPositions(walletAddress, instancesRef.current, poolsRef.current);
         return tx.transaction_hash;

@@ -9,6 +9,7 @@ import { TokenSkeleton, Skeleton } from "@/components/ui/Skeleton";
 import { cn, formatUsd, formatNumber } from "@/lib/utils";
 import { TokenBalance } from "@/types";
 import { toast } from "sonner";
+import { addTransaction } from "@/hooks/useTransactions";
 
 interface PortfolioTabProps {
   onNavigate: (tab: "deposit" | "trade") => void;
@@ -49,6 +50,14 @@ export function PortfolioTab({ onNavigate }: PortfolioTabProps) {
       }]);
 
       setLastTxHash(tx.transaction_hash);
+      addTransaction({
+  hash: tx.transaction_hash,
+  type: "transfer",
+  label: `Send ${sendAmount} ${sendToken.symbol}`,
+  color: "text-blue-400",
+  status: "success",
+  contractName: `${sendToken.symbol} Token`,
+});
       toast.success("Transfer successful!", {
         description: "Sent " + sendAmount + " " + sendToken.symbol + " to " + recipient.slice(0, 8) + "...",
       });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { motion } from "framer-motion";
 import { ArrowLeftRight, ChevronDown, Loader2, CheckCircle, Lock, ExternalLink, Settings, Zap } from "lucide-react";
 import { useWallet } from "@/lib/wallet-context";
@@ -23,13 +23,14 @@ type TokenType = typeof TOKENS[keyof typeof TOKENS];
 export function TradeTab() {
   const { address, isConnected, wallet } = useWallet();
   const { balances } = useTokenBalances(address, wallet);
-  const { quote, isQuoting, isSwapping, lastTxHash, getQuote, executeSwap } = useSwap(address, wallet);
+  const { quote, quoteAge, isQuoting, isSwapping, error: swapError, lastTxHash, getQuote, executeSwap, clearQuote } = useSwap(address, wallet);
 
   const [fromToken, setFromToken] = useState<TokenType>(TOKENS.ETH);
   const [toToken, setToToken] = useState<TokenType>(TOKENS.STRK);
   const [fromAmount, setFromAmount] = useState("");
-  const [slippage, setSlippage] = useState(0.5);
+  const [slippage, setSlippage] = useState(2.0);
   const [showSettings, setShowSettings] = useState(false);
+  const isSubmittingRef = useRef(false);
 
   // Get balance for selected from token
   const fromBalance = balances.find((b) => b.symbol === fromToken.symbol);
@@ -62,15 +63,40 @@ export function TradeTab() {
   };
 
   const handleSwap = async () => {
-    if (!quote || !address) return;
+    if (!quote || !address || !fromAmount) return;
+    if (isSubmittingRef.current) return; // prevent double execution
+    isSubmittingRef.current = true;
+    // Always build quote from current form state to prevent stale token pair
+    const currentQuote = { 
+      ...quote, 
+      fromToken: fromToken.address, 
+      toToken: toToken.address, 
+      fromAmount,
+    };
+    console.log("HANDLE SWAP:", fromToken.symbol, "->", toToken.symbol, fromAmount);
     try {
-      const hash = await executeSwap(quote, slippage);
+      const hash = await executeSwap(currentQuote, slippage);
       setFromAmount("");
-      toast.success("Swap successful!", {
-        description: "Tx: " + hash?.slice(0, 10) + "...",
+      // Show persistent success toast with explorer link
+      toast.success("Swap successful! 🎉", {
+        description: hash
+          ? `View on Voyager: voyager.online/tx/${hash.slice(0, 10)}...`
+          : "Transaction submitted",
+        duration: 8000,
+        action: hash ? {
+          label: "View Tx",
+          onClick: () => window.open(`https://voyager.online/tx/${hash}`, "_blank"),
+        } : undefined,
       });
     } catch (err: any) {
-      toast.error("Swap failed", { description: err.message });
+      if (!err.message?.includes("User abort") && !err.message?.includes("user rejected")) {
+        toast.error("Swap failed", {
+          description: err.message,
+          duration: 6000,
+        });
+      }
+    } finally {
+      isSubmittingRef.current = false;
     }
   };
 
@@ -88,7 +114,7 @@ export function TradeTab() {
               <h3 className="font-display font-bold text-zap-text">Swap Tokens</h3>
               <span className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-zap-green/15 border border-zap-green/30 text-zap-green text-xs font-display font-semibold">
                 <Zap className="w-3 h-3" />
-                Gasless
+                Low Fees
               </span>
             </div>
             <p className="text-zap-subtext text-xs mt-0.5">Powered by AVNU · via Starkzap SDK</p>
@@ -113,7 +139,7 @@ export function TradeTab() {
           >
             <p className="text-zap-subtext text-xs mb-2">Slippage tolerance</p>
             <div className="flex gap-2">
-              {[0.1, 0.5, 1.0].map((s) => (
+              {[0.5, 1.0, 2.0, 5.0].map((s) => (
                 <button
                   key={s}
                   onClick={() => setSlippage(s)}
@@ -158,7 +184,8 @@ export function TradeTab() {
                 options={TOKEN_LIST.filter((t) => t.symbol !== toToken.symbol)}
                 onSelect={(t) => {
                   setFromToken(t as TokenType);
-                  if (fromAmount) getQuote(t.address, toToken.address, fromAmount);
+                  setFromAmount("");
+                  clearQuote();
                 }}
               />
             </div>
@@ -178,10 +205,14 @@ export function TradeTab() {
           <div className="rounded-xl bg-zap-bg border border-zap-border p-4">
             <div className="flex items-center justify-between mb-3">
               <p className="text-zap-subtext text-xs">You receive</p>
-              {isQuoting && (
+              {isQuoting ? (
                 <span className="flex items-center gap-1 text-zap-subtext text-xs">
                   <Loader2 className="w-3 h-3 animate-spin" />
-                  Fetching quote...
+                  Refreshing quote...
+                </span>
+              ) : quote && (
+                <span className={"text-xs font-mono " + (quoteAge > 20 ? "text-orange-400" : "text-zap-muted")}>
+                  {quoteAge > 0 ? quoteAge + "s ago" : "fresh"}
                 </span>
               )}
             </div>
@@ -205,7 +236,8 @@ export function TradeTab() {
                 options={TOKEN_LIST.filter((t) => t.symbol !== fromToken.symbol)}
                 onSelect={(t) => {
                   setToToken(t as TokenType);
-                  if (fromAmount) getQuote(fromToken.address, t.address, fromAmount);
+                  setFromAmount("");
+                  clearQuote();
                 }}
               />
             </div>
@@ -221,17 +253,19 @@ export function TradeTab() {
               <div className="flex items-center justify-between text-xs">
                 <span className="text-zap-subtext">Price impact</span>
                 <span className={cn(
-                  quote.priceImpact > 3 ? "text-red-400" :
-                  quote.priceImpact > 1 ? "text-yellow-400" : "text-zap-green"
+                  "font-mono",
+                  quote.priceImpact > 10 ? "text-red-400" :
+                  quote.priceImpact > 3 ? "text-orange-400" : "text-zap-green"
                 )}>
                   {quote.priceImpact.toFixed(2)}%
                 </span>
               </div>
+
               <div className="flex items-center justify-between text-xs">
-                <span className="text-zap-subtext">Gas fee</span>
+                <span className="text-zap-subtext">Network fee</span>
                 <span className="flex items-center gap-1 text-zap-green font-semibold">
                   <Zap className="w-3 h-3" />
-                  Gasless
+                  &lt;$0.01
                 </span>
               </div>
               <div className="flex items-center justify-between text-xs">
@@ -245,26 +279,64 @@ export function TradeTab() {
             </motion.div>
           )}
 
-          {/* Quote error */}
-          {!quote && !isQuoting && fromAmount && parseFloat(fromAmount) > 0 && (
-            <div className="flex items-start gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-xl">
-              <p className="text-red-400 text-xs">No route found for this pair or amount. Try a larger amount or switch tokens.</p>
+          {/* Quote/swap error */}
+          {swapError && !isQuoting && (
+            <div className="space-y-2">
+              <div className="flex items-start gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-xl">
+                <p className="text-red-400 text-xs">{swapError}</p>
+              </div>
+              {(swapError.includes("Slippage") || swapError.includes("slippage") || swapError.includes("Insufficient")) && (
+                <div className="flex items-center justify-between p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-xl">
+                  <p className="text-yellow-400 text-xs">Try increasing slippage:</p>
+                  <div className="flex gap-1">
+                    {[3, 5].map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => { setSlippage(s); setShowSettings(true); }}
+                        className="px-2 py-1 rounded-lg bg-yellow-500/20 text-yellow-400 text-xs font-bold hover:bg-yellow-500/30 transition-colors"
+                      >
+                        {s}%
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          {!quote && !isQuoting && !swapError && fromAmount && parseFloat(fromAmount) > 0 && (
+            <div className="flex items-start gap-2 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-xl">
+              <p className="text-yellow-400 text-xs">No route found. Try a larger amount — minimum ~1 STRK or 0.001 ETH.</p>
             </div>
           )}
 
-          {/* Last tx */}
+          {/* Success state */}
           {lastTxHash && (
-            <div className="flex items-center gap-2 p-3 bg-zap-green/10 border border-zap-green/20 rounded-xl">
-              <CheckCircle className="w-4 h-4 text-zap-green shrink-0" />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="rounded-xl bg-zap-green/10 border border-zap-green/30 p-4"
+            >
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-9 h-9 rounded-xl bg-zap-green/20 flex items-center justify-center flex-shrink-0">
+                  <CheckCircle className="w-5 h-5 text-zap-green" />
+                </div>
+                <div>
+                  <p className="font-display font-bold text-zap-green text-sm">Swap Successful!</p>
+                  <p className="text-zap-subtext text-xs">Your tokens have been swapped</p>
+                </div>
+              </div>
               <a
                 href={`${NETWORKS.mainnet.explorer}/tx/${lastTxHash}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-zap-green text-xs flex items-center gap-1 hover:underline"
+                className="flex items-center justify-between w-full px-3 py-2 rounded-lg bg-zap-green/10 hover:bg-zap-green/20 transition-colors"
               >
-                Swap confirmed — view on Voyager <ExternalLink className="w-3 h-3" />
+                <span className="text-zap-green text-xs font-mono">{lastTxHash.slice(0, 12)}...{lastTxHash.slice(-6)}</span>
+                <span className="flex items-center gap-1 text-zap-green text-xs font-semibold">
+                  View on Voyager <ExternalLink className="w-3 h-3" />
+                </span>
               </a>
-            </div>
+            </motion.div>
           )}
 
           {/* Action button */}
