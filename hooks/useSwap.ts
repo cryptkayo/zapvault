@@ -20,10 +20,7 @@ function getSdkToken(address: string) {
   if (!localToken) return undefined;
 
   return Object.values(mainnetTokens).find(
-    (t: any) =>
-      t.symbol === localToken.symbol ||
-      (localToken.symbol === "USDC" && t.symbol === "USDC.e") ||
-      (localToken.symbol === "USDC.e" && t.symbol === "USDC")
+    (t: any) => (t as any).symbol === localToken.symbol || (t as any).symbol === "USDC.e"
   ) as any | undefined;
 }
 
